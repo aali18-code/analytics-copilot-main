@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: analytics-copilot-api
+    runtime: python
+    plan: free
+    region: singapore
+    buildCommand: pip install --no-cache-dir -r requirements-backend.txt
+    startCommand: python -m uvicorn backend_modules.main:app --host 0.0.0.0 --port $PORT --workers 1
+    healthCheckPath: /api/health
+    envVars:
+      - key: STORE_BACKEND
+        value: memory
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: MPLCONFIGDIR
+        value: /tmp/mplconfig
+      - key: POC_ACCESS_PASSWORD
+        sync: false
+      - key: FRONTEND_ORIGINS
+        sync: false
+      - key: LLM_MODELS
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false

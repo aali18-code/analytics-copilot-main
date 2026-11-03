@@ -1,0 +1,38 @@
+:root { font-family: "Segoe UI", Aptos, system-ui, sans-serif; color: #172a37; background: #f5f7f8; font-synthesis: none; }
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; }
+button, input, select { font: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; opacity: .55; }
+:focus-visible { outline: 3px solid #5db9bf; outline-offset: 3px; }
+.app-shell { display: grid; grid-template-columns: 244px minmax(0, 1fr); min-height: 100vh; }
+.app-sidebar { background: #122532; color: #f5fbfb; display: flex; flex-direction: column; padding: 29px 17px 24px; position: sticky; top: 0; height: 100vh; }
+.app-brand { display: flex; align-items: center; gap: 11px; padding: 2px 12px 53px; }
+.app-brand-mark { display: grid; place-items: center; width: 38px; height: 38px; border: 1px solid #5f858c; border-radius: 11px; color: #f7fafb; font-size: 20px; font-weight: 700; letter-spacing: -.1em; }
+.app-brand-mark span { color: #66c0bf; }
+.app-brand strong, .app-brand span { display: block; }
+.app-brand strong { font-size: 14px; letter-spacing: -.02em; white-space: nowrap; }
+.app-brand > div:last-child > span { color: #8fa8b0; font-size: 11px; margin-top: 3px; }
+.app-sidebar-label { color: #6c9099; font-size: 10px; font-weight: 750; letter-spacing: .18em; padding: 0 14px 13px; }
+.app-nav { display: grid; gap: 5px; }
+.app-nav-item { background: transparent; border: 1px solid transparent; border-radius: 10px; color: #bdcdd1; display: flex; gap: 13px; align-items: center; width: 100%; padding: 13px; text-align: left; font-size: 13px; font-weight: 600; }
+.app-nav-item:hover { background: #1c3743; color: #fff; }
+.app-nav-item.active { background: #234651; border-color: #315e66; color: #fff; }
+.app-nav-number { color: #82a7aa; font-size: 11px; font-weight: 700; }
+.app-nav-item.active .app-nav-number { color: #8ce0d6; }
+.app-nav-arrow { margin-left: auto; font-size: 19px; line-height: 0; }
+.app-sidebar-footer { border-top: 1px solid #2a4350; margin-top: auto; padding: 20px 13px 0; color: #92abb1; font-size: 12px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.app-sidebar-footer > span { display: flex; align-items: center; gap: 8px; }
+.app-sidebar-footer button { color: #9fc8ca; background: transparent; border: 0; font-size: 11px; padding: 3px; }
+.app-sidebar-footer button:hover { color: #fff; text-decoration: underline; }
+.app-status-dot { width: 7px; height: 7px; border-radius: 50%; background: #73c8b6; box-shadow: 0 0 0 4px #244d50; }
+.app-content { min-width: 0; }
+@media (max-width: 760px) {
+  .app-shell { display: block; }
+  .app-sidebar { height: auto; position: static; padding: 14px 15px; }
+  .app-brand { padding: 0 0 14px; }
+  .app-sidebar-label, .app-nav-number, .app-nav-arrow { display: none; }
+  .app-nav { display: flex; gap: 6px; overflow-x: auto; }
+  .app-nav-item { width: auto; flex: 0 0 auto; padding: 9px 12px; white-space: nowrap; }
+  .app-sidebar-footer { margin-top: 9px; padding: 8px 0 0; border: 0; }
+}
