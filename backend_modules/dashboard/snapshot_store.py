@@ -107,6 +107,11 @@ class MemoryStore:
         with self._lock:
             return f"{len(self._rows)}:{self._rows[-1]['id'] if self._rows else ''}"
 
+    def clear(self) -> None:
+        with self._lock:
+            self._rows.clear()
+            self._ai.clear()
+
 
 # ---- SQLite backend ----------------------------------------------------------
 class SqliteStore:
@@ -174,6 +179,11 @@ class SqliteStore:
             count, last = db.execute("SELECT COUNT(*), COALESCE(MAX(seq), 0) FROM snapshots").fetchone()
             return f"{count}:{last}"
 
+    def clear(self) -> None:
+        with self._lock, self._connect() as db:
+            db.execute("DELETE FROM snapshots")
+            db.execute("DELETE FROM ai_insights")
+
 
 # ---- Choosing the backend ----------------------------------------------------
 _store = None
@@ -223,6 +233,11 @@ def latest_snapshot(source: str) -> dict | None:
 def change_token() -> str:
     """Cheap value that changes whenever anything is saved. The dashboard polls this."""
     return get_store().change_token()
+
+
+def clear() -> None:
+    """Remove every saved KPI snapshot and its AI commentary."""
+    get_store().clear()
 
 def save_ai_insights(period_start, period_end, data: dict) -> None:
     """Save the AI text (AIResult.to_dict()) for one period. Saving again replaces what get returns."""

@@ -1,0 +1,6 @@
+.dashboard-ai-loading { display: flex; align-items: center; gap: 13px; padding: 16px 19px; margin: 0 0 23px; border: 1px solid #d8e9e9; border-radius: 10px; background: linear-gradient(110deg, #f5fbfa, #fff); color: #28535b; box-shadow: 0 5px 14px #25454b08; }
+.dashboard-ai-spinner { width: 22px; height: 22px; flex: 0 0 auto; border: 2px solid #cbe2e2; border-top-color: #21878e; border-radius: 50%; animation: dashboard-spin .8s linear infinite; }
+.dashboard-ai-loading strong, .dashboard-ai-loading small { display: block; }
+.dashboard-ai-loading strong { font-size: 12px; font-weight: 800; }
+.dashboard-ai-loading small { margin-top: 4px; color: #83989d; font-size: 10px; }
+@keyframes dashboard-spin { to { transform: rotate(360deg); } }

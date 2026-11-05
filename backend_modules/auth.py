@@ -111,4 +111,11 @@ def me(response: Response) -> dict:
 def logout(credentials: HTTPAuthorizationCredentials = Depends(bearer)) -> dict:
     with _lock:
         _tokens.pop(_digest(credentials.credentials), None)
-    return {"authenticated": False}
+
+    # This is a single-user POC, so signing out clears all in-memory workspace data.
+    from backend_modules.ask_ai import session_store
+    from backend_modules.dashboard.api import clear_workspace
+
+    session_store.clear()
+    clear_workspace()
+    return {"authenticated": False, "workspace_reset": True}

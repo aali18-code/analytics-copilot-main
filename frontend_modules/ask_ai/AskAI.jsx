@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
 import { askQuestion, clearChat, createSession, downloadExcel, downloadPng, endSession, getAnswer, getSession, getTable } from './api.js';
+import { SharedFilePicker } from '../shared/SharedFilePicker.jsx';
 import './AskAI.css';
 
 const PlotlyFigure = lazy(() => import('./PlotlyFigure.jsx'));
@@ -78,7 +79,7 @@ function DataPanel({ session, table, tableLoading, tableError, selectedAlias, on
   );
 }
 
-export function AskAI() {
+export function AskAI({ sharedFiles = [], onFilesAdded = () => {}, onSharedFileRemove }) {
   const [session, setSession] = useState(null);
   const [messages, setMessages] = useState([]);
   const [selectedAlias, setSelectedAlias] = useState('');
@@ -126,9 +127,16 @@ export function AskAI() {
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }); }, [messages.length, busy]);
 
-  async function upload(files) {
-    if (!files?.length) return;
-    if (files.length > 4) { setNotice({ type: 'error', text: 'Choose up to four files for one session.' }); return; }
+  async function upload(fileList, throwOnError = false) {
+    const files = Array.from(fileList || []);
+    if (!files.length) return false;
+    if (files.length > 4) {
+      const error = new Error('Choose up to four files for one session.');
+      if (throwOnError) throw error;
+      setNotice({ type: 'error', text: error.message });
+      return false;
+    }
+    onFilesAdded(files);
     setBusy('upload'); setNotice(null);
     try {
       const created = await createSession(files);
@@ -136,8 +144,17 @@ export function AskAI() {
       sessionStorage.setItem(SESSION_KEY, created.session_id);
       setSession(created); setMessages([]); setSelectedAlias(created.tables?.[0]?.Variable || ''); setQuestion('');
       if (created.load_errors?.length) setNotice({ type: 'info', text: `${created.load_errors.length} file or sheet issue(s) were skipped; the usable tables are loaded.` });
-    } catch (error) { setNotice({ type: 'error', text: error.message }); }
+      return true;
+    } catch (error) {
+      if (throwOnError) throw error;
+      setNotice({ type: 'error', text: error.message });
+      return false;
+    }
     finally { setBusy(''); }
+  }
+
+  async function useSharedFiles(items) {
+    await upload(items.map((item) => item.file), true);
   }
 
   async function submit(value = question) {
@@ -164,7 +181,7 @@ export function AskAI() {
   async function handleEnd() {
     if (!session) return;
     setBusy('end');
-    try { await endSession(session.session_id); setNotice({ type: 'success', text: 'Session ended and uploaded data cleared.' }); }
+    try { await endSession(session.session_id); setNotice({ type: 'success', text: 'Ask AI session ended. Files remain available in this app session.' }); }
     catch (error) { setNotice({ type: 'info', text: `Local session cleared. Server confirmation was unavailable: ${error.message}` }); }
     sessionStorage.removeItem(SESSION_KEY);
     setSession(null); setMessages([]); setTable(null); setSelectedAlias(''); setQuestion(''); setBusy('');
@@ -175,6 +192,7 @@ export function AskAI() {
   return (
     <div className="ask-page">
       <header className="ask-header"><div><div className="ask-kicker">CONVERSATIONAL ANALYTICS</div><h1>Ask your data</h1><p>Explore spreadsheets in plain English. See the numbers, tables and charts behind each answer.</p></div>{session && <div className="ask-header-actions"><label className={`ask-button secondary ask-replace-button${busy ? ' disabled' : ''}`}>Replace files<input type="file" accept=".csv,.xlsx,.xls" multiple disabled={Boolean(busy)} onChange={(event) => { upload(event.target.files); event.target.value = ''; }} /></label><button className="ask-button secondary" type="button" disabled={Boolean(busy) || !messages.length} onClick={handleClear}>Clear chat</button><button className="ask-button secondary" type="button" disabled={Boolean(busy)} onClick={handleEnd}>End session</button></div>}</header>
+      {!restoring && !session && sharedFiles.length > 0 && <SharedFilePicker title="Use uploaded files" description="Choose files uploaded earlier in this app session." accept=".csv,.xlsx,.xls" files={sharedFiles} maxFiles={4} disabled={Boolean(busy)} onUse={useSharedFiles} onRemove={onSharedFileRemove} />}
       {notice && <div className={`ask-notice ${notice.type}`} role="status"><span>{notice.text}</span><button type="button" aria-label="Dismiss message" onClick={() => setNotice(null)}>×</button></div>}
       {restoring ? <div className="ask-restoring">Restoring your session…</div> : !session ? (
         <section className="ask-empty"><div className="ask-empty-top"><div className="ask-empty-icon" aria-hidden="true">▦</div><div className="ask-kicker">START AN ANALYSIS SESSION</div><h2>Bring your data into focus.</h2><p>Upload CSV or Excel files. We’ll clean and profile each table, then you can ask questions across all of them.</p><label className="ask-upload-button">{busy === 'upload' ? 'Preparing files…' : 'Choose files to analyse'}<input type="file" accept=".csv,.xlsx,.xls" multiple disabled={Boolean(busy)} onChange={(event) => { upload(event.target.files); event.target.value = ''; }} /></label><small>Up to four files · 20 MB per file · 25 MB combined</small></div><div className="ask-empty-foot"><div><strong>01</strong><span>Upload files</span></div><div><strong>02</strong><span>Review profiles</span></div><div><strong>03</strong><span>Ask questions</span></div></div></section>
