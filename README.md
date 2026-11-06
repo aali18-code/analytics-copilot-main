@@ -29,7 +29,7 @@ An optional third page, **LLM Insights**, shows every AI call the app has made (
 
 ### KPI Dashboard
 - **Source detection.** The app recognises ServiceNow, Sprinklr and Traackr workbooks from their column names, finds the real header row on each sheet, and reads only the sheets and columns it needs.
-- **Period confirmation.** The reporting period is detected from the file (latest month for ServiceNow, the title text for Sprinklr, the campaign dates for Traackr). You confirm or correct it before saving.
+- **Period confirmation.** Uploads currently default to 1 July–31 August 2026 for ServiceNow, Traackr and Sprinklr. You can change the dates before saving. Only ServiceNow rows are filtered by the selected dates; Traackr and Sprinklr values cover their whole files.
 - **Fixed KPI formulas.** Every KPI is defined in code in `kpi_config.py`. The AI never calculates a number.
 - **Saved snapshots.** Only calculated results are saved, never raw rows. Saving the same source and period again creates a new version and keeps the old one.
 - **Dashboard content.** ServiceNow uses its existing cards and breakdown charts. Traackr shows four ranked tables: campaigns, Diageo brands, all-market brands, and the three named rum brands. Sprinklr shows top paid and organic posts. Period comparison and trend controls are currently disabled.

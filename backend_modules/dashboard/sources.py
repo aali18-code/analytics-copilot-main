@@ -10,8 +10,9 @@ How it works (per uploaded workbook):
   4. Rename real columns to the COMMON names that kpi_config.py expects.
   5. Detect the reporting period (the user can correct it later).
 
-Hardcoded on purpose: the rules below (signatures, column mapping, period rule).
-Never hardcoded: the data, the period, the month.
+Hardcoded on purpose: the rules below (signatures, column mapping, period rule)
+and the current default reporting period. Users can change that period before saving.
+Never hardcoded: the data in the uploaded files.
 """
 
 from __future__ import annotations
@@ -156,6 +157,7 @@ TOTAL_TABLES = {rule["total_row"]["into"] for spec in SOURCES.values() for rule 
 DATE_FILTERS: dict[str, tuple[str, str]] = {"ServiceNow": ("main", "created")}
 # Other tables of the same file that are also cut to the chosen period: source -> {table: date column}.
 EXTRA_DATE_FILTERS: dict[str, dict[str, str]] = {"ServiceNow": {"requests": "created", "request_detail": "opened"}}
+DEFAULT_REPORTING_PERIOD = (date(2026, 7, 1), date(2026, 8, 31))
 # Common column names that must hold numbers. sources.py only warns about bad values, it never changes the data.
 NUMBER_COLUMNS = (
     "business_duration", "engagements", "reach", "spend", "impressions",
@@ -424,6 +426,8 @@ def _inspect(result: FileResult, data: bytes) -> None:
 
     # 4. Period and row count.
     _detect_period(result, titles)
+    result.period_start, result.period_end = DEFAULT_REPORTING_PERIOD
+    result.period_note = "Default reporting period: 1 July to 31 August 2026. Confirm or change the dates before saving."
     if result.period_start and result.period_end:
         inside = apply_period(result.source, result.tables, result.period_start, result.period_end)
         main_table = DATE_FILTERS.get(result.source, (None,))[0]  # many-period files: count the main table only

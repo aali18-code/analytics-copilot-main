@@ -49,6 +49,8 @@ class DashboardApiTest(unittest.TestCase):
         inspected = upload.json()
         self.assertEqual(inspected["source"], "ServiceNow")
         self.assertTrue(inspected["period_filters_rows"])
+        self.assertEqual(inspected["period_start"], "2026-07-01")
+        self.assertEqual(inspected["period_end"], "2026-08-31")
 
         invalid_period = self.client.post(
             "/api/dashboard/snapshots",
@@ -60,27 +62,27 @@ class DashboardApiTest(unittest.TestCase):
             "/api/dashboard/snapshots",
             json={
                 "upload_id": inspected["upload_id"],
-                "period_start": "2026-08-01",
-                "period_end": "2026-08-31",
+                "period_start": inspected["period_start"],
+                "period_end": inspected["period_end"],
                 "generate_ai": False,
             },
         )
         self.assertEqual(saved.status_code, 201, saved.text)
-        self.assertEqual(saved.json()["snapshot"]["kpis"]["sn_total_tasks"]["value"], 2)
+        self.assertEqual(saved.json()["snapshot"]["kpis"]["sn_total_tasks"]["value"], 3)
 
         reused = self.client.post(
             "/api/dashboard/snapshots",
-            json={"upload_id": inspected["upload_id"], "period_start": "2026-08-01", "period_end": "2026-08-31", "generate_ai": False},
+            json={"upload_id": inspected["upload_id"], "period_start": inspected["period_start"], "period_end": inspected["period_end"], "generate_ai": False},
         )
         self.assertEqual(reused.status_code, 404)
 
         periods = self.client.get("/api/dashboard/periods")
         self.assertEqual(periods.json()["periods"][0]["sources"], ["ServiceNow"])
-        period = self.client.get("/api/dashboard/periods/2026-08-01/2026-08-31")
+        period = self.client.get("/api/dashboard/periods/2026-07-01/2026-08-31")
         self.assertEqual(period.status_code, 200)
         self.assertIsNone(period.json()["sources"]["Traackr"])
 
-        report = self.client.get("/api/dashboard/periods/2026-08-01/2026-08-31/report")
+        report = self.client.get("/api/dashboard/periods/2026-07-01/2026-08-31/report")
         self.assertEqual(report.status_code, 200, report.text)
         self.assertTrue(report.content.startswith(b"PK"))
 
