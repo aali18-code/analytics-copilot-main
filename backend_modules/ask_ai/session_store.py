@@ -75,3 +75,9 @@ def get(session_id: str) -> Session | None:
 def delete(session_id: str) -> bool:
     with _sessions_lock:
         return _sessions.pop(session_id, None) is not None
+
+
+def clear() -> None:
+    """End every in-memory Ask AI session."""
+    with _sessions_lock:
+        _sessions.clear()

@@ -17,21 +17,59 @@ export function App() {
   const [section, setSection] = useState('dashboard');
   const [access, setAccess] = useState('checking');
   const [accessIssue, setAccessIssue] = useState('');
+  const [sharedFiles, setSharedFiles] = useState([]);
   const Current = sections[section].component;
+
+  function rememberFiles(fileList) {
+    const incoming = Array.from(fileList || []).map((file) => ({
+      id: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`,
+      key: `${file.name}|${file.size}|${file.lastModified}`,
+      file,
+    }));
+    setSharedFiles((current) => {
+      const known = new Set(current.map((item) => item.key));
+      const fresh = [];
+      incoming.forEach((item) => {
+        if (!known.has(item.key)) { known.add(item.key); fresh.push(item); }
+      });
+      return [...current, ...fresh];
+    });
+  }
+
+  function forgetFile(fileId) {
+    setSharedFiles((current) => current.filter((item) => item.id !== fileId));
+  }
+
+  function resetLocalSession() {
+    setSharedFiles([]);
+    setSection('dashboard');
+    sessionStorage.removeItem('analytics-copilot-ask-ai-session');
+  }
 
   useEffect(() => {
     let active = true;
-    checkExistingLogin().then((valid) => { if (active) setAccess(valid ? 'ready' : 'locked'); })
+    checkExistingLogin().then((valid) => { if (active) { if (!valid) resetLocalSession(); setAccess(valid ? 'ready' : 'locked'); } })
       .catch((error) => { if (active) { setAccessIssue(error.message); setAccess('locked'); } });
-    const locked = () => { setAccessIssue('Your demo session expired. Sign in again.'); setAccess('locked'); };
+    const locked = () => { setAccessIssue('Your demo session expired. Sign in again.'); setAccess('locked'); resetLocalSession(); };
     window.addEventListener('auth-required', locked);
     return () => { active = false; window.removeEventListener('auth-required', locked); };
   }, []);
 
   async function retryAccess() {
     setAccessIssue(''); setAccess('checking');
-    try { setAccess(await checkExistingLogin() ? 'ready' : 'locked'); }
+    try {
+      const valid = await checkExistingLogin();
+      if (!valid) resetLocalSession();
+      setAccess(valid ? 'ready' : 'locked');
+    }
     catch (error) { setAccessIssue(error.message); setAccess('locked'); }
+  }
+
+  function handleSignOut() {
+    signOut();
+    resetLocalSession();
+    setAccessIssue('');
+    setAccess('locked');
   }
 
   if (access !== 'ready') return <AccessGate checking={access === 'checking'} issue={accessIssue} onRetry={retryAccess} onLogin={async (password) => { await signIn(password); setAccessIssue(''); setAccess('ready'); }} />;
@@ -59,9 +97,9 @@ export function App() {
             </button>
           ))}
         </nav>
-        <div className="app-sidebar-footer"><span><span className="app-status-dot" /> Proof of concept</span><button type="button" onClick={() => { signOut(); setAccess('locked'); }}>Sign out</button></div>
+        <div className="app-sidebar-footer"><span><span className="app-status-dot" /> Proof of concept</span><button type="button" onClick={handleSignOut}>Sign out</button></div>
       </aside>
-      <main className="app-content"><Current /></main>
+      <main className="app-content"><Current sharedFiles={sharedFiles} onFilesAdded={rememberFiles} onSharedFileRemove={forgetFile} /></main>
     </div>
   );
 }

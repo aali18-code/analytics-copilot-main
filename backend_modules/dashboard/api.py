@@ -45,6 +45,14 @@ class SaveRequest(BaseModel):
     generate_ai: bool = True
 
 
+def clear_workspace() -> None:
+    """Clear pending dashboard imports and all saved dashboard results."""
+    with _lock:
+        _pending.clear()
+        _notes.clear()
+        snapshot_store.clear()
+
+
 def _cleanup_pending(now: float) -> None:
     """Called with _lock held."""
     expired = [key for key, (created, _) in _pending.items() if now - created > PENDING_SECONDS]

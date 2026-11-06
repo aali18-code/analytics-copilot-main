@@ -2,7 +2,9 @@ import React, { useEffect, useState } from 'react';
 
 import { KpiChart } from './KpiChart.jsx';
 import { downloadReport, generateInsights, getPeriod, inspectFile, listPeriods, saveSnapshot } from './api.js';
+import { SharedFilePicker } from '../shared/SharedFilePicker.jsx';
 import './Dashboard.css';
+import './DashboardLoading.css';
 
 const SOURCE_ORDER = ['ServiceNow', 'Traackr', 'Sprinklr'];
 const SOURCE_DESCRIPTIONS = {
@@ -94,11 +96,12 @@ function SourceView({ source, snapshot, ai }) {
   );
 }
 
-function UploadPanel({ uploads, busy, onFiles, onDate, onSave, onRemove }) {
+function UploadPanel({ uploads, sharedFiles, busy, onFiles, onUseShared, onSharedFileRemove, onDate, onSave, onRemove }) {
   return (
     <section className="dashboard-upload-panel" aria-label="Upload exports">
       <div className="dashboard-upload-heading"><div><div className="dashboard-kicker">DATA INPUT</div><h2>Import source exports</h2><p>Excel files are checked before any KPI is saved. Confirm the reporting period for each file.</p></div><span className="dashboard-upload-limit">XLSX, XLSM, XLS · UP TO 20 MB EACH</span></div>
       <label className="dashboard-dropzone"><input type="file" accept=".xlsx,.xlsm,.xls" multiple disabled={busy} onChange={(event) => { onFiles(event.target.files); event.target.value = ''; }} /><span className="dashboard-upload-glyph" aria-hidden="true">↑</span><strong>Choose Excel exports</strong><span>ServiceNow, Traackr and Sprinklr are recognised automatically</span></label>
+      {sharedFiles.length > 0 && uploads.length === 0 && <SharedFilePicker title="Use uploaded files" description="Select Excel exports already uploaded during this app session." accept=".xlsx,.xlsm,.xls" files={sharedFiles} maxFiles={4} disabled={busy} onUse={onUseShared} onRemove={onSharedFileRemove} />}
       {uploads.length > 0 && <div className="dashboard-upload-list">{uploads.map((item) => (
         <div className="dashboard-upload-item" key={item.local_id}>
           <div className="dashboard-upload-item-head"><div><strong>{item.file_name}</strong><span>{item.upload_id ? `${item.source} · ${item.row_count?.toLocaleString() || 0} rows` : item.error ? 'Could not inspect file' : 'Reading file...'}</span></div><button className="dashboard-text-button" type="button" onClick={() => onRemove(item.local_id)} disabled={busy}>Remove</button></div>
@@ -111,7 +114,7 @@ function UploadPanel({ uploads, busy, onFiles, onDate, onSave, onRemove }) {
   );
 }
 
-export function Dashboard() {
+export function Dashboard({ sharedFiles = [], onFilesAdded = () => {}, onSharedFileRemove }) {
   const [periods, setPeriods] = useState([]);
   const [selectedPeriod, setSelectedPeriod] = useState('');
   const [periodData, setPeriodData] = useState(null);
@@ -167,6 +170,24 @@ export function Dashboard() {
       setNotice({ type: 'error', text: 'Inspect up to four source exports at a time.' });
       return;
     }
+    onFilesAdded(files);
+    setBusy('upload');
+    setNotice(null);
+    const results = await Promise.all(files.map(async (file) => {
+      const local_id = `${Date.now()}-${Math.random()}`;
+      try { return { local_id, ...(await inspectFile(file)) }; }
+      catch (error) { return { local_id, file_name: file.name, error: error.message }; }
+    }));
+    setUploads((current) => [...current, ...results]);
+    setBusy('');
+  }
+
+  async function inspectSharedFiles(items) {
+    const files = items.map((item) => item.file);
+    if (uploads.filter((item) => item.upload_id).length + files.length > 4) {
+      throw new Error('Inspect up to four source exports at a time. Remove an inspected export first.');
+    }
+    onFilesAdded(files);
     setBusy('upload');
     setNotice(null);
     const results = await Promise.all(files.map(async (file) => {
@@ -183,6 +204,7 @@ export function Dashboard() {
     if (!ready.length) return;
     const badDates = ready.find((item) => !item.period_start || !item.period_end || item.period_end < item.period_start);
     if (badDates) { setNotice({ type: 'error', text: 'Check the start and end dates for each file.' }); return; }
+    setShowUpload(false);
     setBusy('save');
     setNotice(null);
     const saved = [];
@@ -210,8 +232,12 @@ export function Dashboard() {
       }
       catch (error) { setNotice({ type: 'error', text: error.message }); }
     }
-    if (Object.keys(failed).length) setNotice({ type: 'error', text: `${Object.keys(failed).length} file(s) could not be saved. Check their messages below.` });
+    if (Object.keys(failed).length) {
+      setShowUpload(true);
+      setNotice({ type: 'error', text: `${Object.keys(failed).length} file(s) could not be saved. Check their messages below.` });
+    }
     else if (saved.length) setNotice({ type: 'success', text: `${saved.length} source export(s) saved. ${aiNote}`.trim() });
+    else setShowUpload(true);
     setBusy('');
   }
 
@@ -243,9 +269,10 @@ export function Dashboard() {
 
   return (
     <div className="dashboard-page">
-      <header className="dashboard-header"><div><div className="dashboard-kicker">PERFORMANCE INTELLIGENCE</div><h1>Executive dashboard</h1><p>A focused view of service delivery, influencer activity and social performance.</p></div><div className="dashboard-header-actions"><button className="dashboard-button secondary" type="button" onClick={() => setShowUpload((value) => !value)}>{showUpload ? 'Close import' : 'Import data'}</button><button className="dashboard-button primary" type="button" disabled={!selectedPeriod || Boolean(busy)} onClick={handleReport}>{busy === 'report' ? 'Preparing…' : 'Download report'}</button></div></header>
+      <header className="dashboard-header"><div><div className="dashboard-kicker">PERFORMANCE INTELLIGENCE</div><h1>Executive dashboard</h1><p>A focused view of service delivery, influencer activity and social performance.</p></div><div className="dashboard-header-actions"><button className="dashboard-button secondary" type="button" disabled={Boolean(busy)} onClick={() => setShowUpload((value) => !value)}>{showUpload ? 'Close import' : 'Import data'}</button><button className="dashboard-button primary" type="button" disabled={!selectedPeriod || Boolean(busy)} onClick={handleReport}>{busy === 'report' ? 'Preparing…' : 'Download report'}</button></div></header>
       {notice && <div role="status" className={`dashboard-notice ${notice.type}`}><span>{notice.text}</span><button type="button" aria-label="Dismiss message" onClick={() => setNotice(null)}>×</button></div>}
-      {showUpload && <UploadPanel uploads={uploads} busy={Boolean(busy)} onFiles={inspectFiles} onDate={(id, field, value) => setUploads((current) => current.map((item) => item.local_id === id ? { ...item, [field]: value } : item))} onSave={saveFiles} onRemove={(id) => setUploads((current) => current.filter((item) => item.local_id !== id))} />}
+      {busy === 'save' && <div className="dashboard-ai-loading" role="status"><span className="dashboard-ai-spinner" aria-hidden="true" /><span><strong>Generating AI insights...</strong><small>Saving KPIs and preparing recommendations for this period.</small></span></div>}
+      {showUpload && <UploadPanel uploads={uploads} sharedFiles={sharedFiles} busy={Boolean(busy)} onFiles={inspectFiles} onUseShared={inspectSharedFiles} onSharedFileRemove={onSharedFileRemove} onDate={(id, field, value) => setUploads((current) => current.map((item) => item.local_id === id ? { ...item, [field]: value } : item))} onSave={saveFiles} onRemove={(id) => setUploads((current) => current.filter((item) => item.local_id !== id))} />}
       {!periods.length && !loading ? <section className="dashboard-empty"><div className="dashboard-empty-symbol" aria-hidden="true">↗</div><div className="dashboard-kicker">READY FOR YOUR DATA</div><h2>Turn source exports into a clear performance story.</h2><p>Import a ServiceNow, Traackr or Sprinklr workbook to calculate the fixed KPIs. Results appear here as cards, charts and ranked tables.</p><button className="dashboard-button primary" type="button" onClick={() => setShowUpload(true)}>Import your first export</button></section> : null}
       {periods.length > 0 && <>
         <div className="dashboard-toolbar"><div><label htmlFor="dashboard-period">REPORTING PERIOD</label><select id="dashboard-period" value={selectedPeriod} onChange={(event) => setSelectedPeriod(event.target.value)}>{periods.map((item) => <option key={periodKey(item)} value={periodKey(item)}>{dateLabel(item.period_start)} – {dateLabel(item.period_end)}</option>)}</select></div><span className="dashboard-updated">{selected?.last_updated ? `Updated ${new Date(selected.last_updated).toLocaleString()}` : ''}</span><button className="dashboard-text-button" type="button" disabled={Boolean(busy)} onClick={handleInsights}>{busy === 'ai' ? 'Writing insights…' : 'Regenerate AI insights'}</button></div>
