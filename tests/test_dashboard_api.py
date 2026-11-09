@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import io
 import os
 import unittest
@@ -9,6 +10,8 @@ from unittest.mock import patch
 
 import pandas as pd
 from fastapi.testclient import TestClient
+from PIL import Image
+from pptx import Presentation
 
 from backend_modules.dashboard import snapshot_store
 from backend_modules.main import app
@@ -85,6 +88,28 @@ class DashboardApiTest(unittest.TestCase):
         report = self.client.get("/api/dashboard/periods/2026-07-01/2026-08-31/report")
         self.assertEqual(report.status_code, 200, report.text)
         self.assertTrue(report.content.startswith(b"PK"))
+
+        picture = io.BytesIO()
+        Image.new("RGB", (12, 8), "white").save(picture, format="PNG")
+        chart_image = "data:image/png;base64," + base64.b64encode(picture.getvalue()).decode("ascii")
+        visual_report = self.client.post(
+            "/api/dashboard/periods/2026-07-01/2026-08-31/report",
+            json={"chart_images": {"sn_tasks_by_sla": chart_image}},
+        )
+        self.assertEqual(visual_report.status_code, 200, visual_report.text)
+        slides = Presentation(io.BytesIO(visual_report.content)).slides
+        self.assertTrue(any(shape.shape_type == 13 for slide in slides for shape in slide.shapes))
+
+        unknown_chart = self.client.post(
+            "/api/dashboard/periods/2026-07-01/2026-08-31/report",
+            json={"chart_images": {"unknown": chart_image}},
+        )
+        self.assertEqual(unknown_chart.status_code, 422)
+        invalid_chart = self.client.post(
+            "/api/dashboard/periods/2026-07-01/2026-08-31/report",
+            json={"chart_images": {"sn_tasks_by_sla": "data:image/png;base64,bm90LXBuZw=="}},
+        )
+        self.assertEqual(invalid_chart.status_code, 422)
 
 
 if __name__ == "__main__":

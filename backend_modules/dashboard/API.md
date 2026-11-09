@@ -21,7 +21,12 @@ existing Streamlit dashboard:
 4. `GET /api/dashboard/periods/{start}/{end}` returns saved source snapshots,
    including chart data and ranked rows, plus any saved AI text.
 5. `POST /api/dashboard/periods/{start}/{end}/insights` retries AI commentary.
-6. `GET /api/dashboard/periods/{start}/{end}/report` downloads the PowerPoint.
+6. `POST /api/dashboard/periods/{start}/{end}/report` downloads the dashboard-style
+   PowerPoint. Its optional JSON body is `{ "chart_images": { "kpi_key": "data:image/png;base64,..." } }`.
+   The React frontend sends PNGs captured from ECharts; the backend validates
+   each image and uses native charts for any missing image. Cards and tables are
+   editable. The existing `GET` route also downloads the new layout with native
+   chart fallback for older clients.
 
 `GET /api/health` is the service health check. The selected dates filter
 ServiceNow rows; for Traackr and Sprinklr they only label the full-file values.

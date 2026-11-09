@@ -6,7 +6,10 @@ kept in the configured snapshot store, which defaults to process memory.
 
 from __future__ import annotations
 
+import base64
+import binascii
 import io
+import re
 import threading
 import time
 from collections import OrderedDict
@@ -15,12 +18,13 @@ from uuid import uuid4
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from PIL import Image, UnidentifiedImageError
+from pydantic import BaseModel, Field
 
 from backend_modules.dashboard import (
+    dashboard_pptx_writer,
     dashboard_ai,
     kpi_engine,
-    pptx_writer,
     report_deck,
     snapshot_store,
     sources,
@@ -32,6 +36,9 @@ SOURCE_ORDER = ("ServiceNow", "Traackr", "Sprinklr")
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 MAX_PENDING_UPLOADS = 4
 PENDING_SECONDS = 30 * 60
+MAX_REPORT_IMAGES = 20
+MAX_REPORT_IMAGE_BYTES = 2 * 1024 * 1024
+PNG_DATA_URL = re.compile(r"^data:image/png;base64,([A-Za-z0-9+/=]+)$")
 
 _pending: OrderedDict[str, tuple[float, sources.FileResult]] = OrderedDict()
 _notes: dict[tuple[str, str, str], list[str]] = {}
@@ -43,6 +50,10 @@ class SaveRequest(BaseModel):
     period_start: date
     period_end: date
     generate_ai: bool = True
+
+
+class ReportVisuals(BaseModel):
+    chart_images: dict[str, str] = Field(default_factory=dict)
 
 
 def clear_workspace() -> None:
@@ -197,9 +208,35 @@ def regenerate_insights(start: date, end: date) -> dict:
     return _write_insights(str(start), str(end))
 
 
-@router.get("/periods/{start}/{end}/report")
-def download_report(start: date, end: date) -> StreamingResponse:
-    """Generate the same PowerPoint deck as the Streamlit dashboard."""
+def _decode_chart_images(images: dict[str, str], snapshots: dict[str, dict]) -> dict[str, bytes]:
+    if len(images) > MAX_REPORT_IMAGES:
+        raise HTTPException(status_code=422, detail="Too many chart images in the report request.")
+    allowed = {chart.get("kpi_key") for snap in snapshots.values() for chart in snap.get("charts", [])}
+    decoded = {}
+    for key, data_url in images.items():
+        if key not in allowed:
+            raise HTTPException(status_code=422, detail="Unknown chart in the report request.")
+        if len(data_url) > MAX_REPORT_IMAGE_BYTES * 4 // 3 + 40:
+            raise HTTPException(status_code=422, detail="Invalid or oversized chart image.")
+        match = PNG_DATA_URL.fullmatch(data_url)
+        if not match:
+            raise HTTPException(status_code=422, detail="Invalid or oversized chart image.")
+        try:
+            content = base64.b64decode(match.group(1), validate=True)
+        except binascii.Error as exc:
+            raise HTTPException(status_code=422, detail="Invalid chart image encoding.") from exc
+        if len(content) > MAX_REPORT_IMAGE_BYTES or not content.startswith(b"\x89PNG\r\n\x1a\n"):
+            raise HTTPException(status_code=422, detail="Invalid or oversized chart image.")
+        try:
+            with Image.open(io.BytesIO(content)) as image:
+                image.verify()
+        except (UnidentifiedImageError, OSError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail="Invalid chart image.") from exc
+        decoded[key] = content
+    return decoded
+
+
+def _download_report(start: date, end: date, chart_images: dict[str, str] | None = None) -> StreamingResponse:
     _check_period(start, end)
     snapshots = _period_snapshots(str(start), str(end))
     if not snapshots:
@@ -207,9 +244,14 @@ def download_report(start: date, end: date) -> StreamingResponse:
     items = [(source, snapshots[source], None) for source in SOURCE_ORDER if source in snapshots]
     saved_ai = snapshot_store.get_ai_insights(start, end)
     ai = dashboard_ai.AIResult.from_dict(saved_ai) if saved_ai else None
+    images = _decode_chart_images(chart_images or {}, snapshots)
     try:
         deck = report_deck.build((str(start), str(end)), items, ai)
-        content, _warnings = pptx_writer.build_deck(deck)
+        for slide in deck["slides"]:
+            key = slide.get("kpi_key")
+            if key in images:
+                slide["chart_png"] = images[key]
+        content, _warnings = dashboard_pptx_writer.build_deck(deck)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Could not build the report: {exc}") from exc
     filename = f"kpi_report_{start}_{end}.pptx"
@@ -218,3 +260,15 @@ def download_report(start: date, end: date) -> StreamingResponse:
         media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.get("/periods/{start}/{end}/report")
+def download_report(start: date, end: date) -> StreamingResponse:
+    """Download a dashboard-style PPTX with native chart fallback."""
+    return _download_report(start, end)
+
+
+@router.post("/periods/{start}/{end}/report")
+def download_visual_report(start: date, end: date, visuals: ReportVisuals) -> StreamingResponse:
+    """Download the dashboard-style PPTX using chart images from ECharts."""
+    return _download_report(start, end, visuals.chart_images)

@@ -34,7 +34,7 @@ An optional third page, **LLM Insights**, shows every AI call the app has made (
 - **Saved snapshots.** Only calculated results are saved, never raw rows. Saving the same source and period again creates a new version and keeps the old one.
 - **Dashboard content.** ServiceNow uses its existing cards and breakdown charts. Traackr shows four ranked tables: campaigns, Diageo brands, all-market brands, and the three named rum brands. Sprinklr shows top paid and organic posts. Period comparison and trend controls are currently disabled.
 - **AI insight and recommendation per dashboard ID.** Every KPI has an ID (SN1, TC1, SP1…). The AI receives the displayed values or table rows and writes an insight and recommendation for each ID. Its numbers are checked against the supplied data. If no valid AI text is available, the dashboard shows the data without AI commentary.
-- **PowerPoint report.** One click builds a deck from the saved KPIs, charts, insights and recommendations, using the template in `templates/`.
+- **PowerPoint report.** The React dashboard downloads a deck styled like its cards and tables. It includes the same saved KPI values and AI commentary, and captures ECharts charts as images so their appearance matches the browser. Cards and tables remain editable in PowerPoint.
 
 ### LLM Insights
 - Cards for number of AI calls, total tokens, total cost and average latency, plus a table of the latest calls.
@@ -57,7 +57,7 @@ An optional third page, **LLM Insights**, shows every AI call the app has made (
 3. **Save.** `snapshot_store.py` stores the calculated snapshot.
 4. **Display.** The dashboard shows ServiceNow cards/charts and ranked Traackr/Sprinklr tables for the selected period.
 5. **Explain.** `dashboard_ai.py` sends each calculated KPI or displayed table to the AI using `dashboard_prompts.py`. It checks the returned insight and recommendation, retries invalid entries once, and saves valid text for the period. A source can be processed without the other two.
-6. **Report.** `report_deck.py` prepares the slides, using the saved AI text (and the rule-based text from `insights.py` where there is none), and `pptx_writer.py` draws the PowerPoint.
+6. **Report.** `report_deck.py` prepares slides from saved KPIs and AI text. `dashboard_pptx_writer.py` draws the React dashboard report; `pptx_writer.py` retains the legacy Streamlit layout.
 
 ## Requirements
 
@@ -169,7 +169,7 @@ For Sprinklr and Traackr, the numbers cover the whole file. Changing the dates o
 
 ### Adapting to a new export format
 
-All recognition rules live at the top of `sources.py` (the `SOURCES` block): which columns identify a sheet, how real column names map to common names, and how the period is detected. KPI formulas live in `kpi_config.py`. Report wording and layout live in `report_deck.py` and `pptx_writer.py`, and the slide template is `templates/diageo_template.pptx`.
+All recognition rules live at the top of `sources.py` (the `SOURCES` block): which columns identify a sheet, how real column names map to common names, and how the period is detected. KPI formulas live in `kpi_config.py`. React report planning and layout live in `report_deck.py` and `dashboard_pptx_writer.py`. The legacy Streamlit report still uses `pptx_writer.py` and `templates/diageo_template.pptx`.
 
 ## Demo with the sample data
 

@@ -256,7 +256,10 @@ export function Dashboard({ sharedFiles = [], onFilesAdded = () => {}, onSharedF
   async function handleReport() {
     if (!selectedPeriod) return;
     setBusy('report'); setNotice(null);
-    try { await downloadReport(...splitPeriod(selectedPeriod)); }
+    try {
+      const result = await downloadReport(...splitPeriod(selectedPeriod), periodData);
+      if (result.fallbackCount) setNotice({ type: 'info', text: `Report downloaded. ${result.fallbackCount} chart(s) used the PowerPoint fallback style.` });
+    }
     catch (error) { setNotice({ type: 'error', text: error.message }); }
     finally { setBusy(''); }
   }

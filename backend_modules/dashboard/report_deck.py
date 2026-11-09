@@ -7,7 +7,8 @@ number of slides follows the saved KPIs:
   - one closing slide with the recommendations that were flagged
 Insights and recommendations on every slide come from the saved AI text (dashboard_ai).
 A KPI with no saved AI text gets an empty box; nothing is written by rules.
-The template and layout are untouched: this file only prepares what pptx_writer draws.
+This file prepares the data plan. The React API uses dashboard_pptx_writer;
+the legacy Streamlit page uses pptx_writer.
 """
 
 from __future__ import annotations
@@ -243,6 +244,7 @@ def _source_slides(source: str, current: dict, previous: dict | None, ai: Any = 
         ins, rec = _ai_lines(ai, current, {row["key"]})
         slides.append({
             "type": kind, "title": f"{source}: {row['name']}", "chart_title": row["name"], "source": files,
+            "kpi_key": row["key"],
             "categories": categories, "series": series, "number_format": fmt,
             "insights": ins, "recommendation": rec,
         })
@@ -338,5 +340,10 @@ def build(period: tuple[str, str], items: list[tuple], ai: Any = None) -> dict:
         "title": "KPI Report",
         "subtitle": f"{period[0]} to {period[1]}",
         "sources": [i[0] for i in ordered],
+        "overview": {
+            "sources_count": len(ordered),
+            "kpi_count": sum(len(current.get("kpis", {})) for _, current, *_ in ordered),
+            "ai_count": len(getattr(ai, "entries", {}) or {}),
+        },
         "slides": slides,
     }

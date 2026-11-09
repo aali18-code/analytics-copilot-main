@@ -2,9 +2,9 @@ import React, { useEffect, useMemo, useRef } from 'react';
 import * as echarts from 'echarts/core';
 import { BarChart, PieChart } from 'echarts/charts';
 import { GridComponent, TooltipComponent } from 'echarts/components';
-import { SVGRenderer } from 'echarts/renderers';
+import { CanvasRenderer, SVGRenderer } from 'echarts/renderers';
 
-echarts.use([BarChart, PieChart, GridComponent, TooltipComponent, SVGRenderer]);
+echarts.use([BarChart, PieChart, GridComponent, TooltipComponent, SVGRenderer, CanvasRenderer]);
 
 const COLORS = ['#1b8792', '#60b3b1', '#314c61', '#9bc9b0', '#c6a765', '#89a0b3', '#bd8f84', '#d7cbb5'];
 
@@ -53,6 +53,36 @@ function optionsFor(chart, unit) {
     yAxis: { type: 'value', axisLabel: { color: '#80919c', formatter: format }, splitLine: { lineStyle: { color: '#ebf0f2' } } },
     series: [{ type: 'bar', data: values, barMaxWidth: 50, itemStyle: { color: ({ dataIndex }) => COLORS[dataIndex % COLORS.length], borderRadius: [4, 4, 0, 0] }, label: { show: true, position: 'top', color: '#364d59', formatter: ({ value }) => format(value) } }],
   };
+}
+
+export function renderChartPng(chart, unit) {
+  const width = 700;
+  const height = 350;
+  const container = document.createElement('div');
+  Object.assign(container.style, {
+    position: 'fixed', left: '-10000px', top: '0', width: `${width}px`, height: `${height}px`, pointerEvents: 'none', opacity: '0',
+  });
+  document.body.appendChild(container);
+  let visual;
+  try {
+    visual = echarts.init(container, null, { renderer: 'canvas', width, height });
+    const options = optionsFor(chart, unit);
+    const axis = (value) => value ? { ...value, axisLabel: { ...value.axisLabel, fontSize: 15 } } : value;
+    visual.setOption({
+      ...options,
+      animation: false,
+      textStyle: { ...options.textStyle, fontSize: 15 },
+      xAxis: axis(options.xAxis),
+      yAxis: axis(options.yAxis),
+      series: options.series.map((item) => ({ ...item, label: { ...item.label, fontSize: 15 } })),
+    }, true);
+    const png = visual.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: '#ffffff' });
+    if (!png.startsWith('data:image/png;base64,')) throw new Error('The chart could not be captured for PowerPoint.');
+    return png;
+  } finally {
+    visual?.dispose();
+    container.remove();
+  }
 }
 
 export function KpiChart({ chart, unit, title }) {

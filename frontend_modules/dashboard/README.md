@@ -3,7 +3,10 @@
 `Dashboard.jsx` renders the management dashboard. `KpiChart.jsx` renders the
 saved breakdown values with Apache ECharts. `api.js` calls the Dashboard API.
 The browser displays only calculated snapshots; the Python backend remains the
-source of KPI values and PowerPoint content.
+source of KPI values and PowerPoint content. On report download, the browser
+captures each ECharts chart as a PNG and sends those images to the backend so
+the deck uses the dashboard's chart appearance. If capture fails, that chart
+uses a native PowerPoint fallback and the UI reports the count.
 
 To run locally, start the API from the repository root using the command in
 `backend_modules/dashboard/API.md`, then run from `frontend_modules/`:
