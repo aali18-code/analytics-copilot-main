@@ -8,10 +8,10 @@
 > `MIGRATION_STRUCTURE.md` for the map. The Dashboard and Ask AI React screens
 > and LLM monitoring React screens are connected to their Python APIs.
 
-Two tools in one Streamlit app:
+The React platform has these primary tools:
 
-1. **Ask your data (main page).** Upload any CSV or Excel files and ask questions in plain English. An AI model writes the analysis code, Python runs it locally on your full data, and you get a written summary with tables and interactive charts.
-2. **KPI Dashboard (`Dashboard` page).** Upload ServiceNow, Traackr and Sprinklr exports, save predefined KPIs for a reporting period, read AI-written insights and recommendations when a model is available, and download a PowerPoint report. ServiceNow keeps its existing cards and charts. Traackr and Sprinklr show ranked tables calculated from the export rows; AI never calculates their values.
+1. **Ask AI (separate page).** Upload CSV or Excel files and ask questions in plain English. An AI model writes analysis code, Python runs it on the complete local data, and the page shows a summary with tables and interactive charts.
+2. **Dashboard.** The main Prefilled view calculates fixed KPIs from ServiceNow, Traackr and Sprinklr exports for a confirmed reporting period, adds optional AI commentary, and downloads a PowerPoint report. After saving, the separate AI Generated Dashboard starts in the background, chooses 2–3 metrics per source, calculates them with generated pandas code, and writes grounded insights.
 
 An optional third page, **LLM Insights**, shows every AI call the app has made (model, tokens, cost, latency) using Langfuse.
 
@@ -28,12 +28,15 @@ An optional third page, **LLM Insights**, shows every AI call the app has made (
 - **Privacy controls.** E-mail addresses and phone numbers are masked before anything is sent to the model, and you can limit or disable sample rows.
 
 ### KPI Dashboard
+- **Two views.** The Prefilled Executive dashboard opens first. The AI Generated Dashboard is available from its header and uses the same inspected uploads; it has no date filter.
 - **Source detection.** The app recognises ServiceNow, Sprinklr and Traackr workbooks from their column names, finds the real header row on each sheet, and reads only the sheets and columns it needs.
 - **Period confirmation.** Uploads currently default to 1 July–31 August 2026 for ServiceNow, Traackr and Sprinklr. You can change the dates before saving. Only ServiceNow rows are filtered by the selected dates; Traackr and Sprinklr values cover their whole files.
 - **Fixed KPI formulas.** Every KPI is defined in code in `kpi_config.py`. The AI never calculates a number.
 - **Saved snapshots.** Only calculated results are saved, never raw rows. Saving the same source and period again creates a new version and keeps the old one.
 - **Dashboard content.** ServiceNow uses its existing cards and breakdown charts. Traackr shows four ranked tables: campaigns, Diageo brands, all-market brands, and the three named rum brands. Sprinklr shows top paid and organic posts. Period comparison and trend controls are currently disabled.
 - **AI insight and recommendation per dashboard ID.** Every KPI has an ID (SN1, TC1, SP1…). The AI receives the displayed values or table rows and writes an insight and recommendation for each ID. Its numbers are checked against the supplied data. If no valid AI text is available, the dashboard shows the data without AI commentary.
+- **AI-selected measures.** The AI Generated view sends filenames, original column names and five masked sample rows per usable sheet to the model. The model chooses metrics and pandas code; the backend executes the code on the full local tables, then makes a separate model call for commentary on the calculated results.
+- **Dashboard model order.** Every Dashboard AI call tries `gemini-3.8-flash`, then `gemini-3.6-flash`, `gemini-3.5-flash-lite`, and `gemini-3.1-flash-lite`.
 - **PowerPoint report.** The React dashboard downloads a deck styled like its cards and tables. It includes the same saved KPI values and AI commentary, and captures ECharts charts as images so their appearance matches the browser. Cards and tables remain editable in PowerPoint.
 
 ### LLM Insights
@@ -58,6 +61,7 @@ An optional third page, **LLM Insights**, shows every AI call the app has made (
 4. **Display.** The dashboard shows ServiceNow cards/charts and ranked Traackr/Sprinklr tables for the selected period.
 5. **Explain.** `dashboard_ai.py` sends each calculated KPI or displayed table to the AI using `dashboard_prompts.py`. It checks the returned insight and recommendation, retries invalid entries once, and saves valid text for the period. A source can be processed without the other two.
 6. **Report.** `report_deck.py` prepares slides from saved KPIs and AI text. `dashboard_pptx_writer.py` draws the React dashboard report; `pptx_writer.py` retains the legacy Streamlit layout.
+7. **Prepare AI view.** Once the Prefilled results are loaded, the browser starts AI Generated Dashboard preparation in the background. `generated.py` plans and executes the selected pandas metrics, then requests commentary from the calculated values. Keep the browser tab open until it is ready.
 
 ## Requirements
 
@@ -146,14 +150,15 @@ LLM_MODELS=gemini:gemini-3.8-flash,gemini:gemini-3.6-flash,gemini:gemini-3.5-fla
 
 ## Using the KPI Dashboard
 
-1. Open the **Dashboard** page and expand **Upload files**.
+1. Open **Dashboard**. The Prefilled Executive dashboard appears first; click **Import data** if the upload panel is closed.
 2. Select one or more Excel exports (`.xlsx`, `.xlsm`, `.xls`). The page shows the source it recognised, the sheets it used and how many rows it read.
 3. Confirm the **period start and end** for each file.
-4. Click **Calculate and save**. Any problems with a file or period are shown and nothing empty is saved.
+4. Click **Calculate and save KPIs**. Any problems with a file or period are shown and nothing empty is saved.
 5. After a successful save, the app attempts to write an insight and recommendation for each available dashboard ID. Click **Regenerate AI insights for this period** to retry.
 6. Choose a **Period**. Only saved periods are offered.
 7. Read the ServiceNow cards/charts and the Traackr/Sprinklr ranked tables. Each KPI has a dashboard ID (SN1, TC1, SP1 and so on) and displays any available AI commentary.
-8. Click **Generate report (PPT)**, then download the `.pptx` file. The slides use the same AI text.
+8. Click **Download report** for the `.pptx` file. The slides use the same AI text.
+9. The AI Generated Dashboard prepares automatically after the Prefilled work finishes. Continue reading Prefilled, then click **AI Generated Dashboard** when its ready notice appears. The AI view also offers a retry if generation fails.
 
 ### Supported sources
 
@@ -207,7 +212,9 @@ Your files are read and analysed on your computer. All calculations run locally.
 
 The provider never receives the full files. E-mail addresses and phone numbers are masked in what is sent. Other text, such as names, is not.
 
-**KPI Dashboard:** KPIs and ranked tables are calculated in Python, never by AI. Saved snapshots contain only the calculated results, including the displayed top rows. For insights, the AI provider receives those results with their dashboard IDs and the Diageo context prompt. It does not receive the full Excel files. Displayed rows may contain campaign, brand, account or post names, so check your provider's terms before using confidential data.
+**Prefilled Dashboard:** Fixed KPIs and ranked tables are calculated in Python. Saved snapshots contain calculated results, including displayed top rows. The AI provider receives those results with their dashboard IDs and the Diageo context prompt. It does not receive the full Excel files.
+
+**AI Generated Dashboard:** The model receives the Diageo context, filenames, original column names and five masked sample rows per usable sheet to choose metrics and pandas code. The full workbook rows stay on the backend for calculation. A later model call receives calculated metric values for commentary. Sample or displayed rows may contain campaign, brand, account or post names; check your provider's terms before using confidential data.
 
 **Langfuse (optional):** when keys are set, the app records metadata for each AI call: step name, model, provider, token counts, latency, cost and status, plus a session id. It does not send prompts, sample rows or answers.
 
@@ -248,7 +255,7 @@ The model's code runs in a separate process with a time limit and without your A
 - Free-tier models are rate-limited, and code quality varies between models.
 - The KPI Dashboard only understands the three supported export layouts. ServiceNow formulas are placeholders until confirmed. Traackr and Sprinklr tables require the specified source sheets and columns.
 - AI text is attempted after each save for the sources available in that period. If it fails validation, that ID has no AI text until regeneration succeeds.
-- The AI sees the saved KPI values and displayed ranked rows, not the full Excel files.
+- Neither Dashboard view sends full Excel files to the AI provider. Prefilled sends calculated KPI values and displayed ranked rows; AI Generated sends a compact worksheet profile and later the calculated metrics.
 - Period comparison and trend display are disabled in the current dashboard UI.
 - Sheets are limited to the first 100,000 rows when read by the KPI Dashboard.
 - Single user, running locally.

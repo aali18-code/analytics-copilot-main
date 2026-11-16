@@ -24,6 +24,7 @@ from pydantic import BaseModel, Field
 from backend_modules.dashboard import (
     dashboard_pptx_writer,
     dashboard_ai,
+    generated,
     kpi_engine,
     report_deck,
     snapshot_store,
@@ -40,7 +41,8 @@ MAX_REPORT_IMAGES = 20
 MAX_REPORT_IMAGE_BYTES = 2 * 1024 * 1024
 PNG_DATA_URL = re.compile(r"^data:image/png;base64,([A-Za-z0-9+/=]+)$")
 
-_pending: OrderedDict[str, tuple[float, sources.FileResult]] = OrderedDict()
+_pending: OrderedDict[str, tuple[float, sources.FileResult, bytes]] = OrderedDict()
+_consumed: set[str] = set()
 _notes: dict[tuple[str, str, str], list[str]] = {}
 _lock = threading.Lock()
 
@@ -56,19 +58,25 @@ class ReportVisuals(BaseModel):
     chart_images: dict[str, str] = Field(default_factory=dict)
 
 
+class GenerateRequest(BaseModel):
+    upload_ids: list[str] = Field(min_length=1, max_length=4)
+
+
 def clear_workspace() -> None:
     """Clear pending dashboard imports and all saved dashboard results."""
     with _lock:
         _pending.clear()
+        _consumed.clear()
         _notes.clear()
         snapshot_store.clear()
 
 
 def _cleanup_pending(now: float) -> None:
     """Called with _lock held."""
-    expired = [key for key, (created, _) in _pending.items() if now - created > PENDING_SECONDS]
+    expired = [key for key, (created, _, _) in _pending.items() if now - created > PENDING_SECONDS]
     for key in expired:
         _pending.pop(key, None)
+        _consumed.discard(key)
 
 
 def _period_snapshots(start: str, end: str) -> dict[str, dict]:
@@ -123,8 +131,9 @@ def inspect_upload(file: UploadFile = File(...)) -> dict:
     with _lock:
         _cleanup_pending(time.monotonic())
         while len(_pending) >= MAX_PENDING_UPLOADS:
-            _pending.popitem(last=False)
-        _pending[upload_id] = (time.monotonic(), result)
+            old_id, _ = _pending.popitem(last=False)
+            _consumed.discard(old_id)
+        _pending[upload_id] = (time.monotonic(), result, data)
 
     return {
         "upload_id": upload_id,
@@ -147,7 +156,7 @@ def save_snapshot(request: SaveRequest) -> dict:
     _check_period(request.period_start, request.period_end)
     with _lock:
         _cleanup_pending(time.monotonic())
-        pending = _pending.get(request.upload_id)
+        pending = None if request.upload_id in _consumed else _pending.get(request.upload_id)
     if pending is None:
         raise HTTPException(status_code=404, detail="Upload not found or expired. Upload the file again.")
 
@@ -158,8 +167,10 @@ def save_snapshot(request: SaveRequest) -> dict:
 
     start, end = str(request.period_start), str(request.period_end)
     snapshot_id = snapshot_store.save_snapshot(calculated.snapshot)
+    # Saving stays single-use, while the parsed tables remain available to the
+    # other Dashboard view until the upload expires.
     with _lock:
-        _pending.pop(request.upload_id, None)
+        _consumed.add(request.upload_id)
     inside = sources.apply_period(result.source, result.tables, request.period_start, request.period_end)
     _notes[(start, end, result.source)] = dashboard_ai.summarise_tables(result.source, inside)
     snapshot_store.save_ai_insights(start, end, {})  # old text may describe replaced KPIs
@@ -170,6 +181,32 @@ def save_snapshot(request: SaveRequest) -> dict:
         "warnings": calculated.warnings,
         "ai": ai,
     }
+
+
+@router.post("/generated")
+def generate_dashboard(request: GenerateRequest) -> dict:
+    """Choose metrics from compact workbook profiles, then calculate and explain."""
+    if len(set(request.upload_ids)) != len(request.upload_ids):
+        raise HTTPException(status_code=422, detail="Select each upload once.")
+    with _lock:
+        _cleanup_pending(time.monotonic())
+        selected = [_pending.get(upload_id) for upload_id in request.upload_ids]
+    if any(item is None for item in selected):
+        raise HTTPException(status_code=404, detail="An upload expired. Upload the files again.")
+    files = [item[1] for item in selected]
+    if len({file.source for file in files}) != len(files):
+        raise HTTPException(status_code=422, detail="Upload one workbook per source for this dashboard.")
+    try:
+        router = dashboard_ai.make_router()
+        if router.settings.problems():
+            raise HTTPException(status_code=503, detail="No configured AI model is available.")
+        return generated.generate(files, [item[2] for item in selected], router)
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"The AI dashboard could not be generated: {exc}") from exc
 
 
 @router.get("/periods")

@@ -14,10 +14,11 @@ function isDonut(values, unit) {
   return unit === 'count' && positive.length >= 2 && positive.length <= 8 && Math.max(...positive) / total <= 0.75;
 }
 
-function optionsFor(chart, unit) {
+function optionsFor(chart, unit, generated = false) {
   const labels = chart.labels || [];
   const values = chart.values || [];
   const format = (value) => new Intl.NumberFormat(undefined, { maximumFractionDigits: unit === 'count' ? 0 : 2 }).format(Number(value));
+  const compact = (value) => new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 }).format(Number(value));
   const common = {
     animationDuration: 500,
     color: COLORS,
@@ -40,10 +41,15 @@ function optionsFor(chart, unit) {
   if (horizontal) {
     return {
       ...common,
-      grid: { top: 8, left: 8, right: 40, bottom: 28, containLabel: true },
-      xAxis: { type: 'value', axisLabel: { color: '#80919c', formatter: format }, splitLine: { lineStyle: { color: '#ebf0f2' } } },
-      yAxis: { type: 'category', data: [...labels].reverse(), axisLine: { show: false }, axisTick: { show: false }, axisLabel: { color: '#536775', width: 145, overflow: 'truncate' } },
-      series: [{ type: 'bar', data: [...values].reverse(), barMaxWidth: 24, itemStyle: { color: COLORS[0], borderRadius: [0, 4, 4, 0] }, label: { show: true, position: 'right', color: '#364d59', formatter: ({ value }) => format(value) } }],
+      grid: { top: 8, left: 8, right: generated ? 75 : 40, bottom: generated ? 36 : 28, containLabel: true },
+      xAxis: { type: 'value', splitNumber: generated ? 3 : undefined,
+        axisLabel: { color: '#80919c', formatter: generated ? compact : format, hideOverlap: generated },
+        splitLine: { lineStyle: { color: '#ebf0f2' } } },
+      yAxis: { type: 'category', data: [...labels].reverse(), axisLine: { show: false }, axisTick: { show: false },
+        axisLabel: { color: '#536775', width: generated ? 175 : 145, overflow: 'truncate', interval: 0 } },
+      series: [{ type: 'bar', data: [...values].reverse(), barMaxWidth: 24,
+        itemStyle: { color: COLORS[0], borderRadius: [0, 4, 4, 0] },
+        label: { show: true, position: 'right', color: '#364d59', fontSize: generated ? 11 : 12, formatter: ({ value }) => format(value) } }],
     };
   }
   return {
@@ -85,10 +91,12 @@ export function renderChartPng(chart, unit) {
   }
 }
 
-export function KpiChart({ chart, unit, title }) {
+export function KpiChart({ chart, unit, title, generated = false }) {
   const container = useRef(null);
   const instance = useRef(null);
-  const options = useMemo(() => optionsFor(chart, unit), [chart, unit]);
+  const options = useMemo(() => optionsFor(chart, unit, generated), [chart, unit, generated]);
+  const chartHeight = generated && !isDonut(chart.values || [], unit)
+    ? Math.max(270, Math.min(460, 70 + (chart.labels || []).length * 30)) : undefined;
 
   useEffect(() => {
     const target = container.current;
@@ -102,5 +110,5 @@ export function KpiChart({ chart, unit, title }) {
 
   useEffect(() => { instance.current?.setOption(options, true); }, [options]);
 
-  return <div className="dashboard-chart" ref={container} role="img" aria-label={`${title} chart`} />;
+  return <div className="dashboard-chart" ref={container} style={chartHeight ? { height: chartHeight } : undefined} role="img" aria-label={`${title} chart`} />;
 }

@@ -7,6 +7,14 @@ export async function inspectFile(file) {
   return (await request('/api/dashboard/uploads/inspect', { method: 'POST', body })).json();
 }
 
+export async function generateDashboard(uploadIds) {
+  return (await request('/api/dashboard/generated', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ upload_ids: uploadIds }),
+  })).json();
+}
+
 export async function saveSnapshot(item) {
   return (await request('/api/dashboard/snapshots', {
     method: 'POST',

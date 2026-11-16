@@ -14,14 +14,30 @@ existing Streamlit dashboard:
    `file`. The response contains an `upload_id`, detected source, sheets,
    warnings, and suggested period. One file is limited to 20 MB. Up to four
    inspected uploads remain in memory for 30 minutes.
-2. `POST /api/dashboard/snapshots` with JSON containing `upload_id`,
+2. `POST /api/dashboard/generated` with JSON `{ "upload_ids": ["..."] }`.
+   After the user finishes uploading, the backend profiles every usable sheet
+   (original columns and five masked sample rows), asks the configured model to
+   choose 2-3 pandas metrics per source, runs the generated code against the
+   full local tables through the timed Ask AI runner, then makes a second model
+   call for grounded insights. The full workbooks are not sent to the model.
+   Sample rows are compact arrays aligned with the listed columns. For large
+   combined profiles, metric planning uses one model request per source before
+   the separate insights request.
+   Every Dashboard model call tries `gemini-3.8-flash`, then
+   `gemini-3.6-flash`, then `gemini-3.5-flash-lite`, then
+   `gemini-3.1-flash-lite`. This Dashboard-specific order is strict even when
+   an earlier call placed a model in cooldown.
+   The returned AI dashboard is held in the browser for this local session.
+3. `POST /api/dashboard/snapshots` with JSON containing `upload_id`,
    `period_start`, `period_end`, and optional `generate_ai` (default `true`).
-   A successful save consumes the upload ID and returns the calculated snapshot.
-3. `GET /api/dashboard/periods` lists saved periods.
-4. `GET /api/dashboard/periods/{start}/{end}` returns saved source snapshots,
+   This is the Prefilled Dashboard Example. A successful save marks the upload
+   ID as used for saving, while retaining its parsed tables temporarily for
+   AI generation.
+4. `GET /api/dashboard/periods` lists saved periods.
+5. `GET /api/dashboard/periods/{start}/{end}` returns saved source snapshots,
    including chart data and ranked rows, plus any saved AI text.
-5. `POST /api/dashboard/periods/{start}/{end}/insights` retries AI commentary.
-6. `POST /api/dashboard/periods/{start}/{end}/report` downloads the dashboard-style
+6. `POST /api/dashboard/periods/{start}/{end}/insights` retries AI commentary.
+7. `POST /api/dashboard/periods/{start}/{end}/report` downloads the dashboard-style
    PowerPoint. Its optional JSON body is `{ "chart_images": { "kpi_key": "data:image/png;base64,..." } }`.
    The React frontend sends PNGs captured from ECharts; the backend validates
    each image and uses native charts for any missing image. Cards and tables are

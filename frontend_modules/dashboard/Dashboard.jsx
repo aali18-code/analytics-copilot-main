@@ -114,13 +114,15 @@ function UploadPanel({ uploads, sharedFiles, busy, onFiles, onUseShared, onShare
   );
 }
 
-export function Dashboard({ sharedFiles = [], onFilesAdded = () => {}, onSharedFileRemove }) {
+function PrefilledDashboard({ initialUploads = [], onOpenGenerated, onInspected, onRemoved, onUploadDate,
+  onSaved = () => {}, onPrefilledComplete = () => {}, generation, sharedFiles = [],
+  onFilesAdded = () => {}, onSharedFileRemove }) {
   const [periods, setPeriods] = useState([]);
   const [selectedPeriod, setSelectedPeriod] = useState('');
   const [periodData, setPeriodData] = useState(null);
   const [activeSource, setActiveSource] = useState('ServiceNow');
-  const [uploads, setUploads] = useState([]);
-  const [showUpload, setShowUpload] = useState(false);
+  const [uploads, setUploads] = useState(initialUploads);
+  const [showUpload, setShowUpload] = useState(initialUploads.length > 0);
   const [busy, setBusy] = useState('');
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState(null);
@@ -143,7 +145,7 @@ export function Dashboard({ sharedFiles = [], onFilesAdded = () => {}, onSharedF
       const next = result.periods || [];
       setPeriods(next);
       setSelectedPeriod(next[0] ? periodKey(next[0]) : '');
-      setShowUpload(next.length === 0);
+      setShowUpload(next.length === 0 || initialUploads.length > 0);
     }).catch((error) => { if (mounted) setNotice({ type: 'error', text: error.message }); }).finally(() => { if (mounted) setLoading(false); });
     return () => { mounted = false; };
   }, []);
@@ -179,6 +181,7 @@ export function Dashboard({ sharedFiles = [], onFilesAdded = () => {}, onSharedF
       catch (error) { return { local_id, file_name: file.name, error: error.message }; }
     }));
     setUploads((current) => [...current, ...results]);
+    onInspected(results);
     setBusy('');
   }
 
@@ -196,6 +199,7 @@ export function Dashboard({ sharedFiles = [], onFilesAdded = () => {}, onSharedF
       catch (error) { return { local_id, file_name: file.name, error: error.message }; }
     }));
     setUploads((current) => [...current, ...results]);
+    onInspected(results);
     setBusy('');
   }
 
@@ -214,6 +218,7 @@ export function Dashboard({ sharedFiles = [], onFilesAdded = () => {}, onSharedF
       catch (error) { failed[item.local_id] = error.message; }
     }
     setUploads((current) => current.filter((item) => !saved.some((done) => done.local_id === item.local_id)).map((item) => failed[item.local_id] ? { ...item, error: failed[item.local_id] } : item));
+    if (saved.length) onSaved(saved.map((item) => item.upload_id));
     const keys = [...new Set(saved.map(periodKey))];
     let aiNote = '';
     for (const key of keys) {
@@ -229,6 +234,7 @@ export function Dashboard({ sharedFiles = [], onFilesAdded = () => {}, onSharedF
         await refreshPeriods(preferred);
         setPeriodData(await getPeriod(...splitPeriod(preferred)));
         setShowUpload(false);
+        onPrefilledComplete(saved.map((item) => item.upload_id));
       }
       catch (error) { setNotice({ type: 'error', text: error.message }); }
     }
@@ -272,10 +278,13 @@ export function Dashboard({ sharedFiles = [], onFilesAdded = () => {}, onSharedF
 
   return (
     <div className="dashboard-page">
-      <header className="dashboard-header"><div><div className="dashboard-kicker">PERFORMANCE INTELLIGENCE</div><h1>Executive dashboard</h1><p>A focused view of service delivery, influencer activity and social performance.</p></div><div className="dashboard-header-actions"><button className="dashboard-button secondary" type="button" disabled={Boolean(busy)} onClick={() => setShowUpload((value) => !value)}>{showUpload ? 'Close import' : 'Import data'}</button><button className="dashboard-button primary" type="button" disabled={!selectedPeriod || Boolean(busy)} onClick={handleReport}>{busy === 'report' ? 'Preparing…' : 'Download report'}</button></div></header>
+      <header className="dashboard-header"><div><div className="dashboard-kicker">PERFORMANCE INTELLIGENCE</div><h1>Executive dashboard</h1><p>A focused view of service delivery, influencer activity and social performance.</p></div><div className="dashboard-header-actions"><button className="dashboard-button secondary" type="button" disabled={Boolean(busy)} onClick={onOpenGenerated}>AI Generated Dashboard</button><button className="dashboard-button secondary" type="button" disabled={Boolean(busy)} onClick={() => setShowUpload((value) => !value)}>{showUpload ? 'Close import' : 'Import data'}</button><button className="dashboard-button primary" type="button" disabled={!selectedPeriod || Boolean(busy)} onClick={handleReport}>{busy === 'report' ? 'Preparing…' : 'Download report'}</button></div></header>
       {notice && <div role="status" className={`dashboard-notice ${notice.type}`}><span>{notice.text}</span><button type="button" aria-label="Dismiss message" onClick={() => setNotice(null)}>×</button></div>}
+      {generation.status === 'running' && <div role="status" className="dashboard-notice info">AI Generated Dashboard is being prepared in the background. You can read this dashboard while it runs; keep this tab open.</div>}
+      {generation.status === 'ready' && <div role="status" className="dashboard-notice success">AI Generated Dashboard is ready. Open it with the button above.</div>}
+      {generation.status === 'error' && <div role="alert" className="dashboard-notice error">AI Generated Dashboard could not be prepared: {generation.error}. Open it to retry.</div>}
       {busy === 'save' && <div className="dashboard-ai-loading" role="status"><span className="dashboard-ai-spinner" aria-hidden="true" /><span><strong>Generating AI insights...</strong><small>Saving KPIs and preparing recommendations for this period.</small></span></div>}
-      {showUpload && <UploadPanel uploads={uploads} sharedFiles={sharedFiles} busy={Boolean(busy)} onFiles={inspectFiles} onUseShared={inspectSharedFiles} onSharedFileRemove={onSharedFileRemove} onDate={(id, field, value) => setUploads((current) => current.map((item) => item.local_id === id ? { ...item, [field]: value } : item))} onSave={saveFiles} onRemove={(id) => setUploads((current) => current.filter((item) => item.local_id !== id))} />}
+      {showUpload && <UploadPanel uploads={uploads} sharedFiles={sharedFiles} busy={Boolean(busy)} onFiles={inspectFiles} onUseShared={inspectSharedFiles} onSharedFileRemove={onSharedFileRemove} onDate={(id, field, value) => { setUploads((current) => current.map((item) => item.local_id === id ? { ...item, [field]: value } : item)); onUploadDate(id, field, value); }} onSave={saveFiles} onRemove={(id) => { setUploads((current) => current.filter((item) => item.local_id !== id)); onRemoved(id); }} />}
       {!periods.length && !loading ? <section className="dashboard-empty"><div className="dashboard-empty-symbol" aria-hidden="true">↗</div><div className="dashboard-kicker">READY FOR YOUR DATA</div><h2>Turn source exports into a clear performance story.</h2><p>Import a ServiceNow, Traackr or Sprinklr workbook to calculate the fixed KPIs. Results appear here as cards, charts and ranked tables.</p><button className="dashboard-button primary" type="button" onClick={() => setShowUpload(true)}>Import your first export</button></section> : null}
       {periods.length > 0 && <>
         <div className="dashboard-toolbar"><div><label htmlFor="dashboard-period">REPORTING PERIOD</label><select id="dashboard-period" value={selectedPeriod} onChange={(event) => setSelectedPeriod(event.target.value)}>{periods.map((item) => <option key={periodKey(item)} value={periodKey(item)}>{dateLabel(item.period_start)} – {dateLabel(item.period_end)}</option>)}</select></div><span className="dashboard-updated">{selected?.last_updated ? `Updated ${new Date(selected.last_updated).toLocaleString()}` : ''}</span><button className="dashboard-text-button" type="button" disabled={Boolean(busy)} onClick={handleInsights}>{busy === 'ai' ? 'Writing insights…' : 'Regenerate AI insights'}</button></div>
@@ -285,4 +294,103 @@ export function Dashboard({ sharedFiles = [], onFilesAdded = () => {}, onSharedF
       </>}
     </div>
   );
+}
+
+function GeneratedView({ result }) {
+  return (
+    <>
+      <p className="dashboard-generated-subtitle">The AI chose these measures from the uploaded workbook structure. Values were calculated from the complete tables.</p>
+      {(result.notes || []).length > 0 && <details className="dashboard-skipped"><summary>{result.notes.length} measure(s) could not be displayed</summary><ul>{result.notes.map((note, i) => <li key={i}>{note}</li>)}</ul></details>}
+      {SOURCE_ORDER.map((source) => {
+        const block = result.sources?.[source];
+        if (!block) return null;
+        return <section className="dashboard-generated-source" key={source} aria-label={`${source} generated results`}>
+          <div className="dashboard-source-heading"><div><div className="dashboard-kicker">SOURCE ANALYSIS</div><h2>{source}</h2><p>{SOURCE_DESCRIPTIONS[source]}</p></div><div className="dashboard-source-file">Source: {block.file_name}</div></div>
+          <div className="dashboard-generated-grid">{block.metrics.map((metric) => {
+            const ai = result.insights?.entries?.[metric.id];
+            const ranked = metric.kind === 'breakdown'
+              ? Object.entries(metric.value).sort((left, right) => Number(right[1]) - Number(left[1])) : [];
+            const chart = ranked.length ? { labels: ranked.map(([label]) => label), values: ranked.map(([, value]) => value) } : null;
+            return <article className="dashboard-panel dashboard-generated-metric" key={metric.id}>
+              <div className="dashboard-panel-heading"><div><span className="dashboard-id">{metric.id}</span><h3>{metric.title}</h3></div><span className="dashboard-panel-unit">{metric.unit}</span></div>
+              {chart ? <KpiChart chart={chart} unit={metric.unit} title={metric.title} generated /> : <div className="dashboard-metric-value">{formatValue(metric.value, metric.unit)}</div>}
+              <Insight id={metric.id} ai={result.insights} />
+              {!ai && <p className="dashboard-file-note">Insight commentary is unavailable for this measure.</p>}
+            </article>;
+          })}</div>
+        </section>;
+      })}
+    </>
+  );
+}
+
+export function Dashboard({ sharedFiles = [], onFilesAdded = () => {}, onSharedFileRemove,
+  dashboardUploads: uploads = [], setDashboardUploads: setUploads,
+  generatedDashboard: result = null, dashboardGeneration: generation,
+  startDashboardGeneration, clearGeneratedDashboard,
+  dashboardSavedIds: savedIds = [], setDashboardSavedIds: setSavedIds }) {
+  const [mode, setMode] = useState('prefilled');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  async function addFiles(fileList) {
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
+    if (uploads.filter((item) => item.upload_id).length + files.length > 4) {
+      setError('Inspect up to four source exports at a time.');
+      return;
+    }
+    setBusy(true); setError('');
+    onFilesAdded(files);
+    const inspected = await Promise.all(files.map(async (file) => {
+      try { return { local_id: `${Date.now()}-${Math.random()}`, ...(await inspectFile(file)) }; }
+      catch (issue) { return { local_id: `${Date.now()}-${Math.random()}`, file_name: file.name, error: issue.message }; }
+    }));
+    setUploads((current) => [...current, ...inspected]);
+    clearGeneratedDashboard(); setBusy(false);
+  }
+
+  function generate() {
+    const ready = uploads.filter((item) => item.upload_id);
+    if (!ready.length) { setError('Upload at least one recognized workbook.'); return; }
+    if (new Set(ready.map((item) => item.source)).size !== ready.length) {
+      setError('Use one workbook per source. Remove duplicate sources before generating.'); return;
+    }
+    setError('');
+    startDashboardGeneration(ready.map((item) => item.upload_id), { force: true });
+  }
+
+  if (mode === 'prefilled') return <PrefilledDashboard
+    initialUploads={uploads.filter((item) => item.upload_id && !savedIds.includes(item.upload_id))}
+    onOpenGenerated={() => setMode('generated')}
+    onInspected={(items) => { setUploads((current) => [...current, ...items]); clearGeneratedDashboard(); }}
+    onRemoved={(id) => { setUploads((current) => current.filter((item) => item.local_id !== id)); clearGeneratedDashboard(); }}
+    onUploadDate={(id, field, value) => setUploads((current) => current.map((item) => item.local_id === id ? { ...item, [field]: value } : item))}
+    onSaved={(ids) => setSavedIds((current) => [...current, ...ids])}
+    onPrefilledComplete={(completedIds) => {
+      const eligible = new Set([...savedIds, ...completedIds]);
+      const latestBySource = new Map();
+      uploads.filter((item) => item.upload_id && eligible.has(item.upload_id))
+        .forEach((item) => latestBySource.set(item.source, item.upload_id));
+      startDashboardGeneration([...latestBySource.values()]);
+    }}
+    generation={generation}
+    sharedFiles={sharedFiles} onFilesAdded={onFilesAdded} onSharedFileRemove={onSharedFileRemove}
+  />;
+
+  return <div className="dashboard-page">
+    <button className="dashboard-text-button" type="button" onClick={() => setMode('prefilled')}>← Executive dashboard</button>
+    <header className="dashboard-header"><div><div className="dashboard-kicker">PERFORMANCE INTELLIGENCE</div><h1>AI Generated Dashboard</h1><p>Prepared automatically after you save Prefilled KPIs. You can also generate or retry it here.</p></div></header>
+    <section className="dashboard-upload-panel" aria-label="Upload exports">
+      <div className="dashboard-upload-heading"><div><div className="dashboard-kicker">DATA INPUT</div><h2>Import source exports</h2><p>Upload ServiceNow, Traackr and Sprinklr workbooks. You can use the same files in both Dashboard views.</p></div><span className="dashboard-upload-limit">XLSX, XLSM, XLS · UP TO 20 MB EACH</span></div>
+      <label className="dashboard-dropzone"><input type="file" accept=".xlsx,.xlsm,.xls" multiple disabled={busy || generation.status === 'running'} onChange={(event) => { addFiles(event.target.files); event.target.value = ''; }} /><span className="dashboard-upload-glyph" aria-hidden="true">↑</span><strong>Choose Excel exports</strong><span>Finish uploading before generating the dashboard</span></label>
+      {sharedFiles.length > 0 && uploads.length === 0 && <SharedFilePicker title="Use uploaded files" description="Select Excel exports already uploaded during this app session." accept=".xlsx,.xlsm,.xls" files={sharedFiles} maxFiles={4} disabled={busy || generation.status === 'running'} onUse={(items) => addFiles(items.map((item) => item.file))} onRemove={onSharedFileRemove} />}
+      {uploads.length > 0 && <div className="dashboard-upload-list">{uploads.map((item) => <div className="dashboard-upload-item" key={item.local_id}><div className="dashboard-upload-item-head"><div><strong>{item.file_name}</strong><span>{item.upload_id ? `${item.source} · ${item.row_count?.toLocaleString() || 0} rows` : 'Could not inspect file'}</span></div><button className="dashboard-text-button" type="button" disabled={busy || generation.status === 'running'} onClick={() => { setUploads((current) => current.filter((entry) => entry.local_id !== item.local_id)); clearGeneratedDashboard(); }}>Remove</button></div>{item.error && <p className="dashboard-inline-error">{item.error}</p>}{(item.warnings || []).map((warning, i) => <p className="dashboard-file-note" key={i}>{warning}</p>)}</div>)}</div>}
+      <div className="dashboard-upload-actions"><button className="dashboard-button primary" type="button" disabled={busy || generation.status === 'running' || !uploads.some((item) => item.upload_id)} onClick={generate}>{generation.status === 'running' ? 'Generating dashboard…' : result ? 'Regenerate dashboard' : 'Generate dashboard'}</button><span>AI chooses and calculates 2–3 measures for each uploaded source, then writes insights.</span></div>
+    </section>
+    {error && <div role="alert" className="dashboard-notice error">{error}</div>}
+    {generation.status === 'running' && <div role="status" className="dashboard-ai-loading"><span className="dashboard-ai-spinner" aria-hidden="true" /><span><strong>Generating AI dashboard...</strong><small>This runs in the background. You can return to the Executive dashboard.</small></span></div>}
+    {generation.status === 'error' && <div role="alert" className="dashboard-notice error">{generation.error} Use Generate dashboard to retry.</div>}
+    {result && <GeneratedView result={result} />}
+  </div>;
 }

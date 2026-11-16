@@ -26,6 +26,12 @@ import dashboard_prompts as prompts
 from insights import CAUSAL_WORDS, _bad_numbers, _numbers, _parse_json
 
 SOURCE_ORDER = ["ServiceNow", "Traackr", "Sprinklr"]  # order of presentation (and of the IDs)
+DASHBOARD_MODEL_ORDER = (
+    "gemini-3.8-flash",
+    "gemini-3.6-flash",
+    "gemini-3.5-flash-lite",
+    "gemini-3.1-flash-lite",
+)
 STEP_NAME = "dashboard-insights"  # shown on the LLM Insights page
 MAX_TOKENS = 8000                 # about 30 IDs x ~120 tokens, with room to spare
 MAX_SENTENCE_CHARS = 500          # longer text is rejected
@@ -196,10 +202,12 @@ class AIResult:
 
 
 def make_router():
-    """A model router built from .env, for pages that did not get one from the main page."""
+    """Use the same strict Gemini priority for every Dashboard model call."""
     import engine
 
-    return engine.LLMRouter(engine.Settings.from_env())
+    settings = engine.Settings.from_env()
+    settings.models = [engine.ModelSpec("gemini", name) for name in DASHBOARD_MODEL_ORDER]
+    return engine.LLMRouter(settings, strict_order=True)
 
 
 def _field(entry: Any, *names: str) -> str:
@@ -258,7 +266,7 @@ def _ask(router: Any, messages: list[dict]) -> tuple[Any, str | None]:
         return None, model, reply.text
 
 
-def generate(payload: list[dict], router: Any, period: tuple[str, str] | None = None) -> AIResult:
+def generate(payload: list[dict], router: Any, period: tuple[str, str] | None = None, generated: bool = False) -> AIResult:
     """Ask the AI for an insight and a recommendation per dashboard ID. Never raises."""
     items = {item["id"]: item for block in payload for item in block["items"]}
     result = AIResult()
@@ -266,7 +274,7 @@ def generate(payload: list[dict], router: Any, period: tuple[str, str] | None = 
         result.notes.append("There were no KPIs to write about.")
         return result
 
-    messages = prompts.build_messages(payload, period)
+    messages = prompts.build_messages(payload, period, generated)
     prompt_text = messages[1]["content"]
     allowed = {value for _, value, _, _ in _numbers(prompt_text)}
     parsed: Any = None

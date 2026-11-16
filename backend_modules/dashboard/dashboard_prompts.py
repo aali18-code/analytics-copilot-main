@@ -92,6 +92,10 @@ Use exactly the dashboard IDs you were given as the keys:
 }}
 """
 
+GENERATED_SYSTEM_PROMPT = SYSTEM_PROMPT.replace(
+    "monthly KPI dashboard", "AI generated dashboard based on complete uploaded files"
+)
+
 
 # ---- Turning the payload into text -----------------------------------------------
 def _fmt_number(value: float) -> str:
@@ -116,13 +120,15 @@ def _fmt_value(value, unit: str) -> str:
     return str(value)
 
 
-def build_user_prompt(payload: list[dict], period: tuple[str, str] | None = None) -> str:
+def build_user_prompt(payload: list[dict], period: tuple[str, str] | None = None, generated: bool = False) -> str:
     """The data part of the prompt. Sources are written in the order they are given."""
     lines: list[str] = []
     if period:
         lines.append(f"Reporting period: {period[0]} to {period[1]}.")
         lines.append("")
-    lines.append("Here are this period's calculated results. Write an insight and a recommendation for every ID.")
+    lines.append(("Here are calculated results from the complete uploaded files. " if generated else
+                  "Here are this period's calculated results. ") +
+                 "Write an insight and a recommendation for every ID.")
     for block in payload:
         lines.append("")
         lines.append(f"{block['source']}")
@@ -148,11 +154,11 @@ def build_user_prompt(payload: list[dict], period: tuple[str, str] | None = None
     return "\n".join(lines)
 
 
-def build_messages(payload: list[dict], period: tuple[str, str] | None = None) -> list[dict]:
+def build_messages(payload: list[dict], period: tuple[str, str] | None = None, generated: bool = False) -> list[dict]:
     """Chat messages ready for the model router."""
     return [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": build_user_prompt(payload, period)},
+        {"role": "system", "content": GENERATED_SYSTEM_PROMPT if generated else SYSTEM_PROMPT},
+        {"role": "user", "content": build_user_prompt(payload, period, generated)},
     ]
 
 

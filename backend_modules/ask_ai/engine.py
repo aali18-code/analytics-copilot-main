@@ -176,8 +176,10 @@ class LLMRouter:
     """Tries the models in LLM_MODELS order. A model that fails is skipped for a
     cool-down period so the next question does not wait on it again."""
 
-    def __init__(self, settings: Settings, client_factory: Callable[[ModelSpec], Any] | None = None):
+    def __init__(self, settings: Settings, client_factory: Callable[[ModelSpec], Any] | None = None,
+                 *, strict_order: bool = False):
         self.settings = settings
+        self.strict_order = strict_order
         self._client_factory = client_factory or self._default_client
         self._clients: dict[str, Any] = {}
         self._cooldown_until: dict[ModelSpec, float] = {}
@@ -268,7 +270,8 @@ class LLMRouter:
         max_tokens = max_tokens or self.settings.max_tokens
 
         failures: list[str] = []
-        for spec in ready + cooling:  # cooling models are only a last resort
+        order = candidates if self.strict_order else ready + cooling
+        for spec in order:  # Dashboard strict order retries the primary on every call.
             call = observability.start_call(step, spec.model, spec.provider, self.session_id, self.trace_id)
             try:
                 response = self._complete(spec, messages, temperature, max_tokens, openai)
