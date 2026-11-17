@@ -22,7 +22,8 @@ deploying the frontend to Vercel. The Render backend must also allow the
 frontend origin through `FRONTEND_ORIGINS`.
 
 Current UI flow: Dashboard opens on the prefilled Executive dashboard. Inspect
-up to four exports, confirm dates, calculate fixed KPIs, read AI commentary,
+up to four exports, choose dates for ServiceNow (Traackr and Sprinklr use the
+whole file), calculate fixed KPIs, read AI commentary,
 and download the PowerPoint as before. After the Prefilled save and commentary
 attempt finish, the AI Generated Dashboard starts in the background from the
 same inspected uploads. Click **AI Generated Dashboard** to open the separate

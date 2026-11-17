@@ -92,7 +92,7 @@ def upload_section() -> None:
     cache = st.session_state.setdefault("file_results", {})
     ready = []  # (file_key, result, start, end)
     all_ok = True
-    st.subheader("2. Confirm the period for each file")
+    st.subheader("2. Confirm the ServiceNow period")
     for file in files:
         file_key = f"{file.name}:{file.size}"
         if file_key not in cache:
@@ -105,13 +105,19 @@ def upload_section() -> None:
                 for message in result.errors:
                     st.error(message)
                 continue
-            st.markdown(f"**{file.name}** - recognised as **{result.source}** ({result.row_count:,} rows in the detected period)")
-            st.caption(f"Sheets used: {', '.join(f'{t} = {s}' for t, s in result.table_sheets.items())}. {result.period_note}")
+            row_label = "rows in the initial period" if result.source in sources.DATE_FILTERS else "rows in the whole file"
+            st.markdown(f"**{file.name}** - recognised as **{result.source}** ({result.row_count:,} {row_label})")
+            st.caption(f"Sheets used: {', '.join(f'{t} = {s}' for t, s in result.table_sheets.items())}.")
             for message in result.warnings:
                 st.warning(message)
-            left, right = st.columns(2)
-            start = left.date_input("Period start", value=result.period_start or date.today(), key=f"start:{file_key}")
-            end = right.date_input("Period end", value=result.period_end or date.today(), key=f"end:{file_key}")
+            if result.source in sources.DATE_FILTERS:
+                st.caption(result.period_note)
+                left, right = st.columns(2)
+                start = left.date_input("Period start", value=result.period_start or date.today(), key=f"start:{file_key}")
+                end = right.date_input("Period end", value=result.period_end or date.today(), key=f"end:{file_key}")
+            else:
+                st.caption("Whole file detected. All rows will be used; there is no date filter for this source.")
+                start, end = result.period_start, result.period_end
             problems = sources.validate_period(start, end)
             for message in problems:
                 st.error(message)
@@ -127,12 +133,6 @@ def upload_section() -> None:
                 st.caption("Rows read - " + "; ".join(counts))
             if result.skipped_sheets:
                 st.caption("Sheets not read - " + ", ".join(result.skipped_sheets))
-            if result.source not in sources.DATE_FILTERS:
-                detected = (result.period_start, result.period_end)
-                if detected[0] and (start, end) != detected:
-                    st.warning(f"The detected period is {detected[0]} to {detected[1]}. {result.source} numbers cover the whole file, so changing the dates only changes the label.")
-                else:
-                    st.caption(f"{result.source}: the period is only a label. The numbers cover the whole file and do not change with the dates.")
             ready.append((file.name, result, start, end))
 
     if st.button(f"Calculate and save {len(ready)} file(s)", type="primary", disabled=not ready or not all_ok):
