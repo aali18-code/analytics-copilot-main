@@ -64,7 +64,8 @@ def build_payload(snapshots: dict[str, dict], notes: dict[str, list[str]] | None
                 continue
             items.append({"id": dash_id, "name": kpi["name"], "unit": kpi["unit"],
                           "kind": kpi.get("kind"), "columns": kpi.get("columns", []),
-                          "rank_by": kpi.get("rank_by", ""), "value": kpi["value"]})
+                          "rank_by": kpi.get("rank_by", ""), "value": kpi["value"],
+                          "display_value": kpi.get("display_value")})
         items.sort(key=lambda i: _id_number(i["id"]))
         if items:
             payload.append({"source": source, "items": items, "data_notes": notes.get(source, [])})

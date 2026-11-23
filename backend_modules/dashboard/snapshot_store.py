@@ -23,7 +23,11 @@ import sqlite3
 import threading
 from datetime import datetime, timezone
 
+from . import kpi_config
+
 REQUIRED_KEYS = ("source", "period_start", "period_end", "kpis")
+RETIRED_KPI_KEYS = {"sn_avg_duration", "sn_yearly_type_change"}
+RETIRED_DASHBOARD_IDS = {"SN14"}
 
 
 # ---- Small helpers -----------------------------------------------------------
@@ -70,6 +74,41 @@ def _latest_versions(rows: list[dict]) -> list[dict]:
 def _sort(rows: list[dict]) -> list[dict]:
     """Newest period first, then highest version."""
     return sorted(rows, key=lambda r: (r["period_start"], r["period_end"], r["version"]), reverse=True)
+
+
+def _current_view(snapshot: dict | None) -> dict | None:
+    """Present older snapshots in the current KPI order and hide retired entries."""
+    if snapshot is None:
+        return None
+    snapshot = copy.deepcopy(snapshot)
+    for key in RETIRED_KPI_KEYS:
+        snapshot.get("kpis", {}).pop(key, None)
+    if snapshot.get("source") == "ServiceNow":
+        saved = snapshot.get("kpis", {})
+        current = {}
+        for kpi in kpi_config.kpis_for_source("ServiceNow"):
+            if kpi.key not in saved:
+                continue
+            item = {**saved[kpi.key], "dashboard_id": kpi_config.dashboard_id(kpi.key),
+                    "name": kpi.name, "unit": kpi.unit, "kind": kpi.kind,
+                    "chart_type": kpi.chart_type, "columns": list(kpi.columns),
+                    "additional": kpi.additional}
+            if kpi.key == "sn_monthly_request_volume" and isinstance(item.get("value"), list):
+                rows = item["value"]
+                latest = max(rows, key=lambda row: row.get("Month", ""), default=None)
+                item["value"] = int(latest["Requests"]) if latest else None
+                item["display_value"] = (f"{item['value']:,} ({latest['Month']})"
+                                         if latest else "n/a")
+            if kpi.key == "sn_monthly_type_change" and isinstance(item.get("value"), list):
+                item["value"] = [{name: value for name, value in row.items() if name != "Change (%)"}
+                                 for row in item["value"]]
+            current[kpi.key] = item
+        snapshot["kpis"] = current
+    snapshot["charts"] = [chart for chart in snapshot.get("charts", [])
+                          if chart.get("kpi_key") not in RETIRED_KPI_KEYS]
+    snapshot["skipped_kpis"] = [item for item in snapshot.get("skipped_kpis", [])
+                                if item.get("key") not in RETIRED_KPI_KEYS]
+    return snapshot
 
 
 # ---- Memory backend ----------------------------------------------------------
@@ -215,19 +254,19 @@ def get_snapshot(source: str, period_start, period_end, version: int | None = No
     rows = [r for r in get_store().all(source) if _same_period(r, source, start, end)]
     if version is not None:
         rows = [r for r in rows if r["version"] == version]
-    return max(rows, key=lambda r: r["version"], default=None)
+    return _current_view(max(rows, key=lambda r: r["version"], default=None))
 
 
 def list_snapshots(source: str | None = None, latest_only: bool = False) -> list[dict]:
     """Snapshots, newest period first. latest_only=True keeps only the top version per period."""
     rows = get_store().all(source)
-    return _sort(_latest_versions(rows) if latest_only else rows)
+    return [_current_view(row) for row in _sort(_latest_versions(rows) if latest_only else rows)]
 
 
 def latest_snapshot(source: str) -> dict | None:
     """The most recently SAVED snapshot for a source (what the dashboard shows by default)."""
     rows = get_store().all(source)
-    return rows[-1] if rows else None
+    return _current_view(rows[-1]) if rows else None
 
 
 def change_token() -> str:
@@ -246,4 +285,23 @@ def save_ai_insights(period_start, period_end, data: dict) -> None:
 
 def get_ai_insights(period_start, period_end) -> dict | None:
     """The latest saved AI text for a period, or None if there is none."""
-    return get_store().get_ai(_iso(period_start), _iso(period_end))
+    result = get_store().get_ai(_iso(period_start), _iso(period_end))
+    if result and isinstance(result.get("entries"), dict):
+        saved = [row for row in get_store().all("ServiceNow")
+                 if _same_period(row, "ServiceNow", _iso(period_start), _iso(period_end))]
+        previous = max(saved, key=lambda row: row["version"]) if saved else {}
+        old_ids = {value.get("dashboard_id"): kpi_config.dashboard_id(key)
+                   for key, value in previous.get("kpis", {}).items()
+                   if key not in RETIRED_KPI_KEYS} if saved else {}
+        stale_commentary = ({previous["kpis"][key].get("dashboard_id")
+                             for key in ("sn_monthly_request_volume", "sn_monthly_type_change")
+                             if key in previous.get("kpis", {})}
+                            if previous.get("kpi_version") != kpi_config.KPI_VERSION else set())
+        result["entries"] = {
+            (old_ids.get(dash_id) if dash_id.startswith("SN") else dash_id): entry
+            for dash_id, entry in result["entries"].items()
+            if dash_id not in RETIRED_DASHBOARD_IDS
+            and dash_id not in stale_commentary
+            and (not dash_id.startswith("SN") or old_ids.get(dash_id))
+        }
+    return result

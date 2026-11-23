@@ -119,15 +119,20 @@ def _calculate(out: CalcResult, file_result: sources.FileResult, start: date | N
 
     for kpi in runnable:
         df = tables.get(kpi.table)
-        if df is None or df.empty:
+        formula_df = file_result.tables.get(kpi.table) if kpi.period_aware else df
+        if formula_df is None or formula_df.empty:
             skipped_info.append({"key": kpi.key, "name": kpi.name, "reason": f"no rows in '{kpi.table}'"})
             continue
         try:
-            value = _clean(kpi.formula(df))
+            if kpi.period_aware:
+                value = _clean(kpi.formula(formula_df, start, end))
+            else:
+                value = _clean(kpi.formula(formula_df))
+            display_value = kpi.display(df, value) if kpi.display else None
         except Exception as exc:  # noqa: BLE001 - one bad KPI must not stop the others
             skipped_info.append({"key": kpi.key, "name": kpi.name, "reason": f"calculation error: {exc}"})
             continue
-        if kpi.kind == "table" and not value:
+        if kpi.kind in ("table", "paired_bars") and not value:
             skipped_info.append({"key": kpi.key, "name": kpi.name, "reason": "no matching rows"})
             continue
         kpis[kpi.key] = {
@@ -139,12 +144,26 @@ def _calculate(out: CalcResult, file_result: sources.FileResult, start: date | N
             "table": kpi.table,
             "columns": list(kpi.columns),
             "rank_by": kpi.rank_by,
+            "additional": kpi.additional,
             "value": value,
         }
+        if display_value is not None:
+            kpis[kpi.key]["display_value"] = display_value
         if kpi.kind == "breakdown" and isinstance(value, dict):
             chart = _chart_from_breakdown(kpi.key, kpi.name, kpi.unit, value)
             if chart:
                 charts.append(chart)
+        elif kpi.kind == "paired_bars":
+            for month in value["months"]:
+                charts.append({
+                    "kpi_key": f"{kpi.key}_{month['month'].replace('-', '_')}",
+                    "parent_kpi_key": kpi.key,
+                    "title": f"{kpi.name}: {month['label']}",
+                    "labels": value["labels"],
+                    "values": [row["average_hours"] for row in month["rows"]],
+                    "details": {row["request_type"]: row for row in month["rows"]},
+                    "multicolor": True,
+                })
 
     if not kpis:
         out.errors.append("No KPI could be calculated from this file.")

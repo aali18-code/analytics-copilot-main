@@ -51,6 +51,7 @@ SOURCES: dict[str, dict] = {
                 "columns": {
                     "Short Description": "request_type",
                     "Business duration": "business_duration",
+                    "In hours": "in_hours",
                     "Created": "created",
                 },
                 "prefer": (),
@@ -160,7 +161,7 @@ EXTRA_DATE_FILTERS: dict[str, dict[str, str]] = {"ServiceNow": {"requests": "cre
 DEFAULT_REPORTING_PERIOD = (date(2026, 7, 1), date(2026, 8, 31))
 # Common column names that must hold numbers. sources.py only warns about bad values, it never changes the data.
 NUMBER_COLUMNS = (
-    "business_duration", "engagements", "reach", "spend", "impressions",
+    "business_duration", "in_hours", "engagements", "reach", "spend", "impressions",
     "posts", "est_impressions", "video_views", "potential_reach", "total_spend",
     "vit_score", "visibility", "impact", "trust", "engagement_rate", "vit_rate",
     "video_view_rate", "cpm", "vit", "creators",

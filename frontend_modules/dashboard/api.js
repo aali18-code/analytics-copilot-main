@@ -43,8 +43,8 @@ export async function downloadReport(start, end, loadedPeriod) {
   for (const snapshot of Object.values(period.sources || {})) {
     if (!snapshot) continue;
     for (const chart of snapshot.charts || []) {
-      const kpi = snapshot.kpis?.[chart.kpi_key];
-      if (kpi?.kind !== 'breakdown') continue;
+      const kpi = snapshot.kpis?.[chart.parent_kpi_key || chart.kpi_key];
+      if (kpi?.kind !== 'breakdown' && kpi?.kind !== 'paired_bars') continue;
       try { chart_images[chart.kpi_key] = renderChartPng(chart, kpi.unit); }
       catch { fallbackCount += 1; }
     }

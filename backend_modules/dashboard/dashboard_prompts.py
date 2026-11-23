@@ -82,6 +82,8 @@ recommend checking the data. Do not leave it empty.
 - Each ID must be written about on its own. Do not repeat the same sentence for several IDs.
 - For a ranked table, discuss only its displayed rows and the ranking metric. Do not infer
   a trend or a cause from a single period.
+- For paired monthly charts, compare the displayed average hours by request type; counts and
+  total hours are context for those averages, not separate performance rates.
 
 Output format: return ONLY valid JSON, with no text before or after it and no markdown fences. \
 Use exactly the dashboard IDs you were given as the keys:
@@ -133,7 +135,15 @@ def build_user_prompt(payload: list[dict], period: tuple[str, str] | None = None
         lines.append("")
         lines.append(f"{block['source']}")
         for item in block["items"]:
-            if item.get("kind") == "table":
+            if item.get("kind") == "paired_bars":
+                lines.append(f"{item['id']} - {item['name']} (two monthly bar charts):")
+                for month in (item.get("value") or {}).get("months", []):
+                    lines.append(f"  {month['label']}:")
+                    for row in month.get("rows", []):
+                        if row["count"]:
+                            lines.append(f"    {row['request_type']}: {row['average_hours']:.2f} average hours "
+                                         f"({row['sum_hours']:.2f} total hours / {row['count']} entries)")
+            elif item.get("kind") == "table":
                 ranking = f", ranked by {item['rank_by']} descending" if item.get("rank_by") else ""
                 lines.append(f"{item['id']} - {item['name']} (table{ranking}):")
                 for index, row in enumerate(item.get("value") or [], start=1):
@@ -143,7 +153,8 @@ def build_user_prompt(payload: list[dict], period: tuple[str, str] | None = None
                     )
                     lines.append(f"  {index}. {fields}")
             else:
-                lines.append(f"{item['id']} - {item['name']}: {_fmt_value(item.get('value'), item.get('unit', ''))}")
+                value = item.get("display_value") or _fmt_value(item.get("value"), item.get("unit", ""))
+                lines.append(f"{item['id']} - {item['name']}: {value}")
         notes = block.get("data_notes") or []
         if notes:
             lines.append(f"Extra detail from the {block['source']} data (for context only):")

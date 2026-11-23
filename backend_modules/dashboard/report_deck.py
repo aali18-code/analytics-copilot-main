@@ -186,7 +186,8 @@ def _source_slides(source: str, current: dict, previous: dict | None, ai: Any = 
                 cards.append({
                     "id": dash_id,
                     "label": r["name"],
-                    "value": comparison.format_value(r["current"], r["unit"]),
+                    "value": current["kpis"].get(r["key"], {}).get("display_value")
+                             or comparison.format_value(r["current"], r["unit"]),
                     "note": (comparison.format_delta(r) or "") if comparing else "",
                     "insight": entry.insight if entry else "",
                     "recommendation": entry.recommendation if entry and entry.by == "ai" else "",
@@ -202,6 +203,22 @@ def _source_slides(source: str, current: dict, previous: dict | None, ai: Any = 
         pending.clear()
 
     for row in ordered:
+        if row["kind"] == "paired_bars":
+            flush_cards()
+            value = row["current"] or {}
+            insights, recommendations = _ai_lines(ai, current, {row["key"]})
+            for index, month in enumerate(value.get("months", [])):
+                slides.append({
+                    "type": "bar", "title": f"{source}: {month['label']} average hours by request type",
+                    "chart_title": f"{month['label']} | average hours by request type",
+                    "source": files, "kpi_key": f"{row['key']}_{month['month'].replace('-', '_')}",
+                    "categories": value["labels"],
+                    "series": [{"name": month["label"], "values": [item["average_hours"] for item in month["rows"]]}],
+                    "number_format": "0.00", "multicolor": True,
+                    "insights": insights if index == 0 else [],
+                    "recommendation": recommendations if index == 0 else [],
+                })
+            continue
         if row["kind"] == "table":
             flush_cards()
             kpi = current["kpis"][row["key"]]

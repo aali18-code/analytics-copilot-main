@@ -41,7 +41,7 @@ function MetricCard({ kpi, ai }) {
   return (
     <article className="dashboard-metric">
       <div className="dashboard-metric-top"><span className="dashboard-id">{kpi.dashboard_id}</span><span className="dashboard-metric-line" /></div>
-      <div className="dashboard-metric-value">{formatValue(kpi.value, kpi.unit)}</div>
+      <div className="dashboard-metric-value">{kpi.display_value || formatValue(kpi.value, kpi.unit)}</div>
       <h3>{kpi.name}</h3>
       <Insight id={kpi.dashboard_id} ai={ai} />
     </article>
@@ -54,6 +54,26 @@ function BreakdownCard({ kpi, chart, ai }) {
     <article className="dashboard-panel dashboard-breakdown">
       <div className="dashboard-panel-heading"><div><span className="dashboard-id">{kpi.dashboard_id}</span><h3>{kpi.name}</h3></div><span className="dashboard-panel-unit">{kpi.unit === 'count' ? 'TASKS' : kpi.unit.toUpperCase()}</span></div>
       <KpiChart chart={chart} unit={kpi.unit} title={kpi.name} />
+      <Insight id={kpi.dashboard_id} ai={ai} />
+    </article>
+  );
+}
+
+function PairedBarsCard({ kpiKey, kpi, chartByKey, ai }) {
+  const months = kpi.value?.months || [];
+  return (
+    <article className="dashboard-panel dashboard-paired-panel">
+      <div className="dashboard-panel-heading"><div><span className="dashboard-id">{kpi.dashboard_id}</span><h3>{kpi.name}</h3></div><span className="dashboard-panel-unit">AVERAGE HOURS</span></div>
+      <p className="dashboard-paired-note">Each bar shows total In hours divided by the number of entries for that Short Description. Hover for the count and total hours.</p>
+      <div className="dashboard-paired-grid">
+        {months.map((month) => {
+          const chart = chartByKey[`${kpiKey}_${month.month.replace('-', '_')}`];
+          return <div className="dashboard-period-chart" key={month.month}>
+            <div className="dashboard-period-heading"><h4>{month.label}</h4><span>{month.total_requests} entries</span></div>
+            {chart && <KpiChart chart={chart} unit="hours" title={`${kpi.name}, ${month.label}`} />}
+          </div>;
+        })}
+      </div>
       <Insight id={kpi.dashboard_id} ai={ai} />
     </article>
   );
@@ -78,18 +98,32 @@ function RankedTable({ kpi, ai }) {
 
 function SourceView({ source, snapshot, ai }) {
   if (!snapshot) return <div className="dashboard-empty-source"><h2>{source} is not available for this period</h2><p>Upload a matching export and save it with the same reporting dates.</p></div>;
-  const items = Object.values(snapshot.kpis || {});
+  // Older saved snapshots can still contain retired KPIs until recalculated.
+  const entries = Object.entries(snapshot.kpis || {}).filter(([key]) =>
+    key !== 'sn_avg_duration' && key !== 'sn_yearly_type_change');
+  const originalEntries = entries.filter(([, kpi]) => !kpi.additional);
+  const additionalEntries = entries.filter(([, kpi]) => kpi.additional);
+  const items = originalEntries.map(([, kpi]) => kpi);
   const metrics = items.filter((kpi) => kpi.kind !== 'breakdown' && kpi.kind !== 'table');
   const breakdowns = items.filter((kpi) => kpi.kind === 'breakdown');
   const tables = items.filter((kpi) => kpi.kind === 'table');
   const chartByKey = Object.fromEntries((snapshot.charts || []).map((chart) => [chart.kpi_key, chart]));
-  const entries = Object.entries(snapshot.kpis || {});
   return (
     <section aria-label={`${source} results`}>
       <div className="dashboard-source-heading"><div><div className="dashboard-kicker">SOURCE ANALYSIS</div><h2>{source}</h2><p>{SOURCE_DESCRIPTIONS[source]}</p>{source !== 'ServiceNow' && <p>Whole file used. All rows in this export are included.</p>}</div><div className="dashboard-source-file">Source: {(snapshot.source_files || []).join(', ') || 'Uploaded export'}</div></div>
       {metrics.length > 0 && <><div className="dashboard-section-label">KEY MEASURES</div><div className="dashboard-metrics">{metrics.map((kpi) => <MetricCard key={kpi.dashboard_id || kpi.name} kpi={kpi} ai={ai} />)}</div></>}
-      {breakdowns.length > 0 && <><div className="dashboard-section-label">PERFORMANCE BREAKDOWN</div><div className="dashboard-charts">{entries.filter(([, kpi]) => kpi.kind === 'breakdown').map(([key, kpi]) => <BreakdownCard key={key} kpi={kpi} chart={chartByKey[key]} ai={ai} />)}</div></>}
+      {breakdowns.length > 0 && <><div className="dashboard-section-label">PERFORMANCE BREAKDOWN</div><div className="dashboard-charts">{originalEntries.filter(([, kpi]) => kpi.kind === 'breakdown').map(([key, kpi]) => <BreakdownCard key={key} kpi={kpi} chart={chartByKey[key]} ai={ai} />)}</div></>}
       {tables.length > 0 && <><div className="dashboard-section-label">RANKED RESULTS</div><div className="dashboard-tables">{tables.map((kpi) => <RankedTable key={kpi.dashboard_id || kpi.name} kpi={kpi} ai={ai} />)}</div></>}
+      {additionalEntries.length > 0 && <>
+        <div className="dashboard-section-label">ADDITIONAL SERVICENOW METRICS</div>
+        {additionalEntries.map(([key, kpi]) => kpi.kind === 'table'
+          ? <div className="dashboard-tables" key={key}><RankedTable kpi={kpi} ai={ai} /></div>
+          : kpi.kind === 'paired_bars'
+            ? <PairedBarsCard key={key} kpiKey={key} kpi={kpi} chartByKey={chartByKey} ai={ai} />
+          : kpi.kind === 'breakdown'
+            ? <div className="dashboard-charts" key={key}><BreakdownCard kpi={kpi} chart={chartByKey[key]} ai={ai} /></div>
+            : <div className="dashboard-metrics" key={key}><MetricCard kpi={kpi} ai={ai} /></div>)}
+      </>}
       {(snapshot.skipped_kpis || []).length > 0 && <details className="dashboard-skipped"><summary>{snapshot.skipped_kpis.length} measure(s) unavailable from this export</summary><ul>{snapshot.skipped_kpis.map((item) => <li key={item.key}>{item.name}: {item.reason}</li>)}</ul></details>}
       <div className="dashboard-source-foot">Saved {new Date(snapshot.saved_at).toLocaleString()} · KPI version {snapshot.kpi_version} · {(snapshot.period_days || 0)} days</div>
     </section>

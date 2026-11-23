@@ -200,7 +200,7 @@ def _fallback_chart(slide, spec: dict[str, Any], x: float, y: float, w: float, h
     for index, series in enumerate(chart.plots[0].series):
         series.format.fill.solid()
         series.format.fill.fore_color.rgb = _rgb(CHART_COLORS[index % len(CHART_COLORS)])
-        if spec.get("type") == "donut":
+        if spec.get("type") == "donut" or spec.get("multicolor"):
             for point_index, point in enumerate(series.points):
                 point.format.fill.solid()
                 point.format.fill.fore_color.rgb = _rgb(CHART_COLORS[point_index % len(CHART_COLORS)])

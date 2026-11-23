@@ -19,11 +19,12 @@ Change a formula here and bump the relevant source version so old snapshots stay
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 from typing import Any, Callable
 
 import pandas as pd
 
-KPI_VERSION = "0.3-placeholder"  # unchanged ServiceNow definition
+KPI_VERSION = "1.0-servicenow-jun-jul-hours"
 RANKED_TABLE_VERSION = "0.4-ranked-tables"
 
 
@@ -41,7 +42,7 @@ class KPI:
     key: str                       # stable id, used in snapshots
     name: str                      # label shown on the dashboard
     source: str                    # "ServiceNow" | "Sprinklr" | "Traackr"
-    formula: Callable[[pd.DataFrame], Any]  # df -> number, dict (breakdown) or None
+    formula: Callable[..., Any]       # df -> calculated value; period-aware formulas also receive dates
     required_columns: tuple[str, ...]       # common column names it needs
     chart_type: str                # "card" | "bar" | "donut" | "line"
     unit: str                      # "count" | "%" | "currency" | "hours"
@@ -49,6 +50,9 @@ class KPI:
     table: str = "main"            # which sheet/table it reads
     columns: tuple[str, ...] = ()    # displayed columns for a table KPI
     rank_by: str = ""               # ranking metric shown to the insight writer
+    period_aware: bool = False       # formula reads unfiltered history and the selected period
+    additional: bool = False         # shown after the original source KPIs
+    display: Callable[[pd.DataFrame, Any], str] | None = None  # optional card text
 
 
 # ---- Helpers -----------------------------------------------------------------
@@ -128,6 +132,95 @@ def tasks_by_country(df: pd.DataFrame) -> dict[str, int]:
 
 def tasks_by_priority(df: pd.DataFrame) -> dict[str, int]:
     return _count_by(df, "priority")
+
+
+def _latest_request_month(df: pd.DataFrame) -> tuple[str, int] | None:
+    months = pd.to_datetime(df["opened"], errors="coerce").dt.to_period("M")
+    counts = months.dropna().value_counts().sort_index()
+    if counts.empty:
+        return None
+    return str(counts.index[-1]), int(counts.iloc[-1])
+
+
+def monthly_request_volume(df: pd.DataFrame) -> int | None:
+    """Count requests in the latest Opened month within the selected period."""
+    latest = _latest_request_month(df)
+    return latest[1] if latest else None
+
+
+def monthly_volume_display(df: pd.DataFrame, value: int | None) -> str:
+    latest = _latest_request_month(df)
+    return f"{value:,} ({latest[0]})" if latest and value is not None else "n/a"
+
+
+def avg_duration_all_request_types(df: pd.DataFrame) -> float | None:
+    """Overall mean from Sheet1, where Business duration is stored in seconds."""
+    return avg_business_duration(df)
+
+
+def _request_type_monthly_counts(df: pd.DataFrame, start: date, end: date) -> list[dict]:
+    """Show current and previous request counts by type for the latest complete month."""
+    created = pd.to_datetime(df["created"], errors="coerce")
+    selected = created.between(pd.Timestamp(start), pd.Timestamp(end) + pd.Timedelta(days=1), inclusive="left")
+    if not selected.any():
+        return []
+    candidate_months = sorted(created[selected].dt.to_period("M").dropna().unique(), reverse=True)
+    current_month = next((month for month in candidate_months
+                          if month.start_time.date() >= start and month.end_time.date() <= end), None)
+    if current_month is None:
+        return []
+    previous_month = current_month - 1
+    types = _clean_labels(df["request_type"])
+    months = created.dt.to_period("M")
+    current = types[months == current_month].value_counts()
+    previous = types[months == previous_month].value_counts()
+    previous_present = bool((months == previous_month).any())
+    names = sorted(set(current.index) | set(previous.index), key=lambda name: (-int(current.get(name, 0)), str(name)))
+    rows = []
+    for name in names:
+        now = int(current.get(name, 0))
+        before = int(previous.get(name, 0)) if previous_present else None
+        rows.append({"Request type": str(name), "Current month": str(current_month),
+                     "Current requests": now, "Previous month": before})
+    return rows
+
+
+def monthly_request_type_change(df: pd.DataFrame, start: date, end: date) -> list[dict]:
+    return _request_type_monthly_counts(df, start, end)
+
+
+def june_july_average_hours_by_type(df: pd.DataFrame, _start: date, _end: date) -> dict | None:
+    """For each Short Description, sum In hours and divide by its row count in each month."""
+    created_month = pd.to_datetime(df["created"], errors="coerce").dt.to_period("M")
+    request_type = _clean_labels(df["request_type"])
+    hours = _num(df, "in_hours")
+    months = []
+    totals: dict[str, int] = {}
+    for period, label in ((pd.Period("2026-06"), "June 2026"),
+                          (pd.Period("2026-07"), "July 2026")):
+        selected = created_month == period
+        if not selected.any():
+            return None
+        rows = pd.DataFrame({"request_type": request_type[selected], "hours": hours[selected]})
+        counts = rows["request_type"].value_counts()
+        sums = rows.groupby("request_type")["hours"].sum()
+        for name, count in counts.items():
+            totals[str(name)] = totals.get(str(name), 0) + int(count)
+        months.append({"month": str(period), "label": label, "total_requests": int(selected.sum()),
+                       "counts": counts.to_dict(), "sums": sums.to_dict()})
+    labels = sorted(totals, key=lambda name: (-totals[name], name))
+    for month in months:
+        month["rows"] = [
+            {"request_type": name, "count": int(month["counts"].get(name, 0)),
+             "sum_hours": round(float(month["sums"].get(name, 0)), 2),
+             "average_hours": (round(float(month["sums"][name]) / int(month["counts"][name]), 2)
+                               if month["counts"].get(name, 0) else None)}
+            for name in labels
+        ]
+        del month["counts"], month["sums"]
+    return {"labels": labels, "months": months}
+
+
 # ---- Sprinklr formulas -------------------------------------------------------
 def _display(value: Any) -> Any:
     """Preserve Excel text, dates and numbers in a JSON-safe table cell."""
@@ -169,6 +262,7 @@ def _ranked(df: pd.DataFrame, label: str, metric: str, limit: int) -> pd.DataFra
 
 CAMPAIGN_COLUMNS = ("Name", "Start Date", "End Date", "Engagement Rate", "Creators", "Posts", "VIT", "Brand")
 BRAND_COLUMNS = ("Brand", "VIT", "VIT Rate", "Engagement Rate", "Engagements", "Video Views", "VVR")
+MOM_COLUMNS = ("Request type", "Current month", "Current requests", "Previous month")
 PAID_COLUMNS = ("Ad Account", "Engagement Rate in %", "Engagements (SUM)", "Impressions (SUM)",
                 "Cost Per 1,000 Impressions (CPM) in USD (SUM)", "Partnership Ad?")
 ORGANIC_COLUMNS = ("Outbound Post", "Account", "Engagement Rate in %", "Post Reach (SUM)", "Total Engagements (SUM)")
@@ -306,18 +400,27 @@ KPIS: list[KPI] = [
     KPI("sn_cancelled_tasks", "Cancelled tasks", "ServiceNow", cancelled_tasks, ("state",), "card", "count"),
     KPI("sn_tasks_by_sla", "Tasks by SLA type", "ServiceNow", tasks_by_sla,
         ("sla_definition",), "bar", "count", kind="breakdown"),
-    KPI("sn_avg_duration", "Avg business duration", "ServiceNow", avg_business_duration,
-        ("business_duration",), "card", "hours"),  # column is in seconds; the formula converts to hours
     KPI("sn_tasks_by_request_type", "Tasks by request type", "ServiceNow", tasks_by_request_type,
         ("request_type",), "bar", "count", kind="breakdown", table="requests"),
-    KPI("sn_hours_by_request_type", "Avg hours by request type", "ServiceNow", avg_hours_by_request_type,
-        ("request_type", "business_duration"), "bar", "hours", kind="breakdown", table="requests"),
     KPI("sn_tasks_by_region", "Tasks by region", "ServiceNow", tasks_by_region,
         ("region",), "bar", "count", kind="breakdown", table="request_detail"),
     KPI("sn_tasks_by_country", "Tasks by country", "ServiceNow", tasks_by_country,
         ("country",), "bar", "count", kind="breakdown", table="request_detail"),
     KPI("sn_tasks_by_priority", "Tasks by priority", "ServiceNow", tasks_by_priority,
         ("priority",), "bar", "count", kind="breakdown", table="request_detail"),    
+    KPI("sn_monthly_request_volume", "Monthly request volume (July tab)", "ServiceNow", monthly_request_volume,
+        ("opened",), "card", "count", table="request_detail",
+        additional=True, display=monthly_volume_display),
+    KPI("sn_avg_duration_all_types", "Average business duration, all request types", "ServiceNow", avg_duration_all_request_types,
+        ("business_duration",), "card", "hours", table="requests", additional=True),
+    KPI("sn_hours_by_request_type", "Avg hours by request type", "ServiceNow", avg_hours_by_request_type,
+        ("request_type", "business_duration"), "bar", "hours", kind="breakdown", table="requests", additional=True),
+    KPI("sn_monthly_type_change", "Monthly request volumes by type", "ServiceNow", monthly_request_type_change,
+        ("request_type", "created"), "table", "count", kind="table", table="requests",
+        columns=MOM_COLUMNS, period_aware=True, additional=True),
+    KPI("sn_june_july_avg_hours_by_type", "Average hours by request type: June vs July 2026", "ServiceNow",
+        june_july_average_hours_by_type, ("request_type", "in_hours", "created"), "bar", "hours",
+        kind="paired_bars", table="requests", period_aware=True, additional=True),
     # Traackr: each KPI is a ranked table, in dashboard order.
     KPI("tr_cross_campaign", "Cross-Campaign Performance Analysis", "Traackr", top_campaigns,
         ("campaign_name", "start_date", "end_date", "engagement_rate", "creators", "posts", "vit", "brand"),
@@ -347,12 +450,15 @@ DASHBOARD_IDS: dict[str, str] = {
     "sn_completion_rate": "SN2",
     "sn_cancelled_tasks": "SN3",
     "sn_tasks_by_sla": "SN4",
-    "sn_avg_duration": "SN5",
-    "sn_tasks_by_request_type": "SN6",
-    "sn_hours_by_request_type": "SN7",
-    "sn_tasks_by_region": "SN8",
-    "sn_tasks_by_country": "SN9",
-    "sn_tasks_by_priority": "SN10",
+    "sn_tasks_by_request_type": "SN5",
+    "sn_tasks_by_region": "SN6",
+    "sn_tasks_by_country": "SN7",
+    "sn_tasks_by_priority": "SN8",
+    "sn_monthly_request_volume": "SN9",
+    "sn_avg_duration_all_types": "SN10",
+    "sn_hours_by_request_type": "SN11",
+    "sn_monthly_type_change": "SN12",
+    "sn_june_july_avg_hours_by_type": "SN13",
     # Traackr
     "tr_cross_campaign": "TC1",
     "tr_top_diageo_brands": "TC2",
