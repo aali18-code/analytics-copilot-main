@@ -38,10 +38,15 @@ function Insight({ id, ai }) {
 }
 
 function MetricCard({ kpi, ai }) {
+  const displayValue = kpi.display_value || formatValue(kpi.value, kpi.unit);
+  const monthlyVolume = kpi.dashboard_id === 'SN9' && typeof displayValue === 'string'
+    ? displayValue.match(/^(.+?)\s+(\(\d{4}-\d{2}\))$/) : null;
   return (
     <article className="dashboard-metric">
       <div className="dashboard-metric-top"><span className="dashboard-id">{kpi.dashboard_id}</span><span className="dashboard-metric-line" /></div>
-      <div className="dashboard-metric-value">{kpi.display_value || formatValue(kpi.value, kpi.unit)}</div>
+      <div className="dashboard-metric-value">{monthlyVolume
+        ? <>{monthlyVolume[1]} <span className="dashboard-metric-date">{monthlyVolume[2]}</span></>
+        : displayValue}</div>
       <h3>{kpi.name}</h3>
       <Insight id={kpi.dashboard_id} ai={ai} />
     </article>
@@ -116,13 +121,13 @@ function SourceView({ source, snapshot, ai }) {
       {tables.length > 0 && <><div className="dashboard-section-label">RANKED RESULTS</div><div className="dashboard-tables">{tables.map((kpi) => <RankedTable key={kpi.dashboard_id || kpi.name} kpi={kpi} ai={ai} />)}</div></>}
       {additionalEntries.length > 0 && <>
         <div className="dashboard-section-label">ADDITIONAL SERVICENOW METRICS</div>
-        {additionalEntries.map(([key, kpi]) => kpi.kind === 'table'
-          ? <div className="dashboard-tables" key={key}><RankedTable kpi={kpi} ai={ai} /></div>
+        <div className="dashboard-additional-grid">{additionalEntries.map(([key, kpi]) => kpi.kind === 'table'
+          ? <div className="dashboard-additional-wide" key={key}><RankedTable kpi={kpi} ai={ai} /></div>
           : kpi.kind === 'paired_bars'
-            ? <PairedBarsCard key={key} kpiKey={key} kpi={kpi} chartByKey={chartByKey} ai={ai} />
+            ? <div className="dashboard-additional-wide" key={key}><PairedBarsCard kpiKey={key} kpi={kpi} chartByKey={chartByKey} ai={ai} /></div>
           : kpi.kind === 'breakdown'
-            ? <div className="dashboard-charts" key={key}><BreakdownCard kpi={kpi} chart={chartByKey[key]} ai={ai} /></div>
-            : <div className="dashboard-metrics" key={key}><MetricCard kpi={kpi} ai={ai} /></div>)}
+            ? <div className="dashboard-additional-wide" key={key}><BreakdownCard kpi={kpi} chart={chartByKey[key]} ai={ai} /></div>
+            : <MetricCard key={key} kpi={kpi} ai={ai} />)}</div>
       </>}
       {(snapshot.skipped_kpis || []).length > 0 && <details className="dashboard-skipped"><summary>{snapshot.skipped_kpis.length} measure(s) unavailable from this export</summary><ul>{snapshot.skipped_kpis.map((item) => <li key={item.key}>{item.name}: {item.reason}</li>)}</ul></details>}
       <div className="dashboard-source-foot">Saved {new Date(snapshot.saved_at).toLocaleString()} · KPI version {snapshot.kpi_version} · {(snapshot.period_days || 0)} days</div>
